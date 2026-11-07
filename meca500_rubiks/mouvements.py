@@ -6,7 +6,7 @@ tourner_cube et basculer peuvent aussi travailler sur la table (lieu=TABLE), pou
 """
 from .briques import (aller, fermer_pince, lacher_et_remonter, ouvrir_pince, photographier,
                       position_attente, saisir, transferer)
-from .reglages import SOCLE, TABLE, DECALAGE_BASCULE, H_ATTENTE, H_COUCHES_HAUT, H_CUBE, INCLINAISON, LEVEE, RECUL_BASCULE
+from .reglages import SOCLE, TABLE, COTE_CUBE, DECALAGE_BASCULE, H_ATTENTE, H_COUCHES_HAUT, H_CUBE, INCLINAISON, LEVEE, RECUL_BASCULE
 
 
 def prendre_et_reposer(robot):
@@ -55,6 +55,21 @@ def tourner_haut(robot, angle):
     saisir(robot, H_COUCHES_HAUT)
     aller(robot, H_COUCHES_HAUT, rotation=angle)
     lacher_et_remonter(robot, rotation=angle)
+
+
+def verifier_outil(robot):
+    """Contrôle du TCP, SANS le cube : pince ouverte descendue juste au-dessus du socle, pause 10 s.
+
+    Les patins doivent être de part et d'autre de la poche (faces avant / arrière), 10 mm au-dessus
+    du haut d'un cube posé. Sinon : TCP ou SOCLE (reglages.py) faux, ne pas continuer.
+    """
+    position_attente(robot)
+    ouvrir_pince(robot)
+    aller(robot, COTE_CUBE + 15.0)                # bas des patins (5 mm sous le TCP) 10 mm au-dessus du cube
+    robot.WaitIdle(60)
+    robot.Delay(10.0)
+    position_attente(robot)
+    robot.WaitIdle(60)
 
 
 def tourner_cube_gauche(robot):
@@ -136,6 +151,7 @@ def presenter_faces(robot):
 
 
 MOUVEMENTS = [
+    verifier_outil,
     prendre_et_reposer,
     tourner_cube_gauche, tourner_cube_droite,
     basculer_gauche, basculer_droite,

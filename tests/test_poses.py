@@ -10,11 +10,11 @@ from meca500_rubiks import poses
 
 
 def test_position_attente():
-    assert rubiks.pose(rubiks.H_ATTENTE) == (170.0, 0.0, 149.5, 180.0, 0.0, -90.0)
+    assert rubiks.pose(rubiks.H_ATTENTE) == (170.0, 0.0, 116.5, 180.0, 0.0, -90.0)
 
 
 def test_pose_penchee_avec_recul():
-    assert rubiks.pose(rubiks.H_CUBE, 45, 0, 4) == (170.0, -2.828, 71.328, -135.0, 0.0, -90.0)
+    assert rubiks.pose(rubiks.H_CUBE, 45, 0, 4) == (170.0, -2.828, 38.328, -135.0, 0.0, -90.0)
 
 
 @pytest.mark.parametrize("inclinaison", [-45, 0, 45])

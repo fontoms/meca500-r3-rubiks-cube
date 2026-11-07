@@ -7,7 +7,7 @@ ATTENTE = rubiks.pose(rubiks.H_ATTENTE)
 
 def test_preparer(robot):
     rubiks.preparer(robot)
-    assert robot.commandes[0] == ("SetTrf", (0, 0, rubiks.TCP, 0, 0, 0))
+    assert robot.commandes[0] == ("SetTrf", rubiks.TCP)
     assert ("SetBlending", (0,)) in robot.commandes
     assert ("SetCartLinVel", (rubiks.VITESSE_LINEAIRE,)) in robot.commandes
     assert "GripperOpen" in robot.noms()

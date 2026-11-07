@@ -3,6 +3,7 @@
 ```
 Rubiks_Meca500/
 ├── piloter_robot.py       ← PILOTE LE VRAI ROBOT (menu, ou un seul mouvement)
+├── placer_socle.py        ← aide au montage du socle (GUIDE_MONTAGE.md)
 ├── meca500_rubiks/        ← LE CODE DU ROBOT (API mecademicpy)
 │   ├── reglages.py        ←   adresse IP, vitesses, géométrie (socle, cube, TCP, hauteurs)
 │   ├── poses.py              calcul des poses de la pince : pose(hauteur, inclinaison, rotation, recul, lieu)
@@ -11,7 +12,8 @@ Rubiks_Meca500/
 │   └── robot_reel.py         connexion / déconnexion du vrai robot, menu
 ├── Rubiks_Meca500.rdk     ← la station RoboDK pour voir les mouvements en simulation
 ├── simulation/            ← fait tourner meca500_rubiks dans RoboDK
-│   ├── parametres.py      ←   dimensions pince / socle / cube pour le dessin 3D + MODE
+│   ├── parametres.py      ←   maillages 3D, MODE (reprend la géométrie de reglages.py)
+│   ├── maillages/            socle allégé pour RoboDK (tiré de modeles_3D/)
 │   ├── simulateur.py         joue meca500_rubiks dans RoboDK (programmes de la station)
 │   ├── verifier.py           vérification cinématique
 │   ├── scene.py              point d'entrée (Tools > Run Script > 00_Rubiks_Meca500)
@@ -21,6 +23,7 @@ Rubiks_Meca500/
 │   └── connexion_robodk.py   connexion à RoboDK
 ├── tests/                 ← tests pytest, lançables mouvement par mouvement depuis PyCharm
 ├── journal/               ← dernier_mouvement.txt (commandes envoyées), verification.txt, erreur.txt
+├── modeles_3D/            ← tes pièces réelles (doigts, socle) + photos du montage
 ├── robot/                 ← modèle du Meca500 R3
 └── archives/              ← anciennes versions
 ```
@@ -30,6 +33,7 @@ Une fonction par mouvement. Gauche / droite / avant / arrière = vu depuis le ro
 
 | Fonction | Ce que fait le robot |
 |---|---|
+| `verifier_outil` | **sans le cube** : pince ouverte, patins 10 mm au-dessus du haut du cube, pause 10 s (contrôle du TCP et du socle) |
 | `prendre_et_reposer` | saisit le cube, le soulève de 30 mm, le repose |
 | `tourner_cube_gauche` / `tourner_cube_droite` | le cube entier tourne de 90° : la face avant part à gauche / à droite |
 | `basculer_gauche` / `basculer_droite` | le cube bascule de 90° : la face du dessus part à gauche / à droite |
@@ -56,8 +60,12 @@ rubiks.deconnecter(robot)
 ```
 
 ### Avant le premier essai sur le vrai robot
+**Montage du socle et réglage de sa position : voir [GUIDE_MONTAGE.md](GUIDE_MONTAGE.md)** (`placer_socle.py`).
+
 - ordinateur relié au robot en Ethernet (IP du robot dans `reglages.py`, `ADRESSE_IP`) ;
-- socle à X=170, Y=0, dessus à Z=40 mm dans le repère du robot ; TCP = 94,5 mm sous la bride ;
+- socle posé sur la plaque du robot, centre de la poche à X=170, Y=0 (le cube repose à Z=7 mm) ;
+- commence par `verifier_outil` **sans le cube** : les patins doivent encadrer la poche, 10 mm
+  au-dessus de l'endroit où sera le haut du cube ;
 - 1er passage **sans le cube**, vitesses basses (réglées par défaut), main sur l'arrêt d'urgence ;
 - commence par `prendre_et_reposer`, un mouvement à la fois.
 
@@ -131,12 +139,32 @@ de chaque ligne droite. Il vérifie :
 Bilan affiché dans RoboDK et écrit dans `journal/verification.txt`. Les collisions se vérifient à part :
 `MODE = "tests"` dans `simulation/parametres.py`, puis lancer `scene.py`.
 
-## Changer les dimensions (pince, doigts, socle, cube)
-Elles sont dans `simulation/parametres.py` pour le dessin 3D. Reconstruis ensuite la station
-(Tools > Run Script > 00_Rubiks_Meca500). `TCP`, `SOCLE` et `COTE_CUBE` doivent être identiques dans
-`meca500_rubiks/reglages.py` : la simulation refuse de démarrer sinon (et un test le vérifie).
+## Géométrie réelle (pince MEGP 25E, doigts et socle imprimés)
+- **Pince MEGP 25E** avec sa plaque d'adaptation standard (manuel Mecademic, figure 1) : le trou M4
+  des mâchoires est à 19 mm sous la bride et 17 mm de son axe ; course 3 mm par mâchoire.
+- **Doigts** (`modeles_3D/doigts`) : vissés sur les mâchoires, ils descendent en S jusqu'aux patins
+  horizontaux (10 mm de haut, 45 mm de long). Centre des patins = TCP = `SetTrf(3.1, 0, 93.2, 0, 0, 0)`
+  (l'ancien 94,5 mm était presque juste). Écart entre patins : 63,6 mm ouverte, 57,6 mm fermée :
+  le scotch sur les patins rattrape le reste (cube 57 mm) — garde-le.
+- **Prise** : patins sur la couche du milieu (`H_CUBE`) ; pour `tourner_haut`, sur les couches du milieu
+  et du haut (`H_COUCHES_HAUT`) pendant que le socle tient celle du bas.
+- **Bascule** : `DECALAGE_BASCULE = 10` mm (cube tenu plus bas dans les patins), sinon les bras des
+  doigts touchent les coins du haut du cube quand la pince est penchée à 45°.
+- **Socle** (`Cube_holder.stl`) posé sur la plaque : le cube repose 7 mm au-dessus, `SOCLE = (170, 0, 7)`.
 
-Les dimensions de la pince et de l'extension imprimée sont **provisoires**.
+Le fichier `modeles_3D/pince/MEGP_25LS.stp` est celui de la 25LS : il n'est pas utilisé (la simulation
+dessine la 25E d'après son manuel).
+
+## Vérifier les collisions (vrais doigts, vrai socle)
+Chaque mouvement de `meca500_rubiks` est rejoué déplacement par déplacement avec la détection de
+collisions de RoboDK (bras, pince, doigts, cube tenu contre socle, table, caméra, cube posé) :
+`pytest -m robodk`, ou `MODE = "tests"` dans `simulation/parametres.py` puis `scene.py`
+(→ `journal/collisions.txt`). Résultat actuel : aucune collision.
+
+## Changer la géométrie
+Tout est dans `meca500_rubiks/reglages.py` ; la simulation le reprend (plus de double saisie).
+Les maillages de la simulation : `simulation/parametres.py` (`FICHIER_*`, `POSE_DOIGT_*`, `PINCE_25E`).
+Reconstruis ensuite la station (Tools > Run Script > 00_Rubiks_Meca500) et relance les tests.
 
 ## Affichage RoboDK
 Les grosses flèches des repères (socle, table, caméra, base du robot) sont masquées à la construction

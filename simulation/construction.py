@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-Construction de la scène RoboDK : robot, socle, cube (26 cubies) et pince MEGP 25E.
+Construction de la scène RoboDK : robot, socle, cube (26 cubies), pince MEGP 25E et doigts.
 
-Les dimensions viennent de parametres.py.
+Socle et doigts sont les vrais modèles 3D ; la MEGP 25E est dessinée d'après son manuel.
 """
 import math
 import os
 
 from robodk import robolink, robomath
-from robodk.robomath import Mat, rotz, transl
+from robodk.robomath import Mat, TxyzRxyz_2_Pose, pi, rotz, transl
 
 import parametres as P
 from connexion_robodk import RDK
@@ -31,7 +31,7 @@ def boite(x0, y0, z0, x1, y1, z1):
 
 def morceaux_cubie(p0):
     """Corps noir + un autocollant coloré par face visible du cubie de position initiale p0."""
-    a, m, e = P.S / 2 - 0.3, 1.2, 0.6
+    a, m, e = P.S / 2 - 0.8, 1.2, 0.5          # cube simulé 0,3 mm plus petit que le vrai (contacts)
     morceaux = [(boite(-a, -a, -a, a, a, a), "noir")]
     for i in range(3):
         if p0[i]:
@@ -115,16 +115,10 @@ def construire_socle_et_cube(robot):
     repere = RDK.Item(P.NOM_REPERE, robolink.ITEM_TYPE_FRAME)
     if not repere.Valid():
         repere = RDK.AddFrame(P.NOM_REPERE, robot.Parent())
-    repere.setPose(transl(P.SOCLE_X, P.SOCLE_Y, P.HAUTEUR_SOCLE))
+    repere.setPose(transl(P.SOCLE_X, P.SOCLE_Y, P.HAUTEUR_SOCLE))      # centre du fond de la poche
     masquer_axes(robot, repere)
 
-    h = P.h
-    L, lm, j = P.LARGEUR_SOCLE / 2, P.LONGUEUR_MORS / 2, P.JEU_SOCLE
-    socle = objet("Socle", [
-        (boite(-lm, -L, -P.HAUTEUR_SOCLE, lm, L, -j), "socle"),
-        (boite(-lm, h + j, -j, lm, h + j + P.EPAISSEUR_MORS, P.HAUTEUR_MORS), "gris"),
-        (boite(-lm, -h - j - P.EPAISSEUR_MORS, -j, lm, -h - j, P.HAUTEUR_MORS), "gris"),
-    ])
+    socle = charger(P.FICHIER_SOCLE, "Socle", "socle")
     socle.setParent(repere)
     socle.setPose(robomath.eye(4))
 
@@ -192,42 +186,62 @@ def construire_camera(repere_table):
     return camera
 
 
+def pose_tcp():
+    """Bride → TCP (centre des patins), comme SetTrf dans meca500_rubiks."""
+    x, y, z, a, b, g = P.TCP
+    return TxyzRxyz_2_Pose([x, y, z, a * pi / 180, b * pi / 180, g * pi / 180])
+
+
+def pose_doigt(numero, serrage=0.0):
+    """Pose d'un doigt dans le repère de la bride ; serrage = mm de fermeture de la mâchoire."""
+    x, y, z = P.POSE_DOIGT_1 if numero == 1 else P.POSE_DOIGT_2
+    sens = -1 if numero == 1 else 1               # le doigt 1 est côté +Y : il se ferme vers -Y
+    return Mat([[0, 0, 1, x], [-1, 0, 0, y + sens * serrage], [0, -1, 0, z], [0, 0, 0, 1]])
+
+
+def pieces_pince(serrage=0.0):
+    """Corps de la MEGP 25E (+ languettes des mâchoires) en boîtes, repère de la bride."""
+    morceaux = [(boite(*b), "gris_fonce") for b in P.PINCE_25E]
+    x0, x1, z0, z1, e = P.LANGUETTES_25E
+    ext = 12.5 - serrage
+    morceaux.append((boite(x0, ext - e, z0, x1, ext, z1), "noir"))
+    morceaux.append((boite(x0, -ext, z0, x1, -ext + e, z1), "noir"))
+    return morceaux
+
+
+def charger(fichier, nom, couleur):
+    """Charge un maillage (STL / STEP) à la racine de la station."""
+    if not os.path.isfile(fichier):
+        raise RuntimeError("Modèle 3D introuvable : %s" % fichier)
+    obj = RDK.AddFile(fichier)
+    if not obj.Valid():
+        raise RuntimeError("RoboDK n'a pas pu charger %s" % fichier)
+    obj.setName(nom)
+    obj.setColor(P.COUL[couleur])
+    return obj
+
+
 def construire_pince(robot):
+    """Outil MEGP 25E (TCP = centre des patins) avec la pince et les deux doigts réels.
+
+    Les enfants d'un outil sont positionnés par rapport au TCP (pas à la bride) :
+    pose d'une pièce = TCP⁻¹ · (pose de la pièce dans le repère de la bride).
+    """
+    for ancien in RDK.ItemList(robolink.ITEM_TYPE_TOOL):        # ancien outil (autre nom)
+        if ancien.Name() != P.NOM_OUTIL:
+            ancien.Delete()
     outil = RDK.Item(P.NOM_OUTIL, robolink.ITEM_TYPE_TOOL)
     if not outil.Valid():
-        outil = robot.AddTool(transl(0, 0, P.TCP_Z), P.NOM_OUTIL)
-    outil.setPoseTool(transl(0, 0, P.TCP_Z))
+        outil = robot.AddTool(pose_tcp(), P.NOM_OUTIL)
+    outil.setPoseTool(pose_tcp())
     outil.setVisible(True, False)                 # pas de flèches au bout de la pince
     supprimer(P.NOMS_PINCE)
 
-    # Géométries exprimées dans le repère de la BRIDE (Z sort de la bride)
-    pieces = []
-    if P.FICHIER_CAO_PINCE and os.path.isfile(P.FICHIER_CAO_PINCE):
-        cao = RDK.AddFile(P.FICHIER_CAO_PINCE)
-        cao.setName("Pince_CAO")
-        pieces.append(cao)
-    else:
-        pieces.append(objet("Pince_plaque", [(boite(-16, -16, 0, 16, 16, P.EPAISSEUR_PLAQUE), "alu")]))
-        pieces.append(objet("Pince_corps", [(boite(-P.CORPS_X / 2, -P.CORPS_Y / 2, P.EPAISSEUR_PLAQUE,
-                                                   P.CORPS_X / 2, P.CORPS_Y / 2, P.Z_BAS_CORPS), "gris_fonce")]))
-
-    yi = P.ECART_OUVERT / 2
-    yo = yi + P.EPAISSEUR_DOIGT
-    w = P.LARGEUR_DOIGT / 2
-    z_pont = P.Z_BAS_CORPS + P.EPAISSEUR_PONT
-    doigts = []
-    for nom, sg in (("Doigt_1", 1), ("Doigt_2", -1)):
-        y_a, y_b = sorted([sg * 4, sg * yo])
-        pts = boite(-w, y_a, P.Z_BAS_CORPS, w, y_b, z_pont)                 # pont sous le boîtier
-        y_a, y_b = sorted([sg * yi, sg * yo])
-        pts += boite(-w, y_a, z_pont, w, y_b, P.Z_BOUT_DOIGTS)              # grand doigt
-        d = objet(nom, [(pts, "pla")])
-        pieces.append(d)
-        doigts.append((d, sg))
-
-    # Les enfants d'un outil sont positionnés par rapport au TCP (pas à la bride) :
-    # la bride vue depuis le TCP = transl(0, 0, -TCP_Z).
-    for p in pieces:
-        p.setParent(outil)
-        p.setPose(transl(0, 0, -P.TCP_Z))
-    return outil, pieces, doigts
+    pince = objet("Pince", pieces_pince())
+    doigt_1 = charger(P.FICHIER_DOIGT_1, "Doigt_1", "pla")
+    doigt_2 = charger(P.FICHIER_DOIGT_2, "Doigt_2", "pla")
+    bride_vue_du_tcp = pose_tcp().inv()
+    for piece, pose in ((pince, robomath.eye(4)), (doigt_1, pose_doigt(1)), (doigt_2, pose_doigt(2))):
+        piece.setParent(outil)
+        piece.setPose(bride_vue_du_tcp * pose)
+    return outil, [pince, doigt_1, doigt_2], [(doigt_1, 1), (doigt_2, 2)]

@@ -1,0 +1,12 @@
+# Environnement Python local
+.venv/
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Réglages locaux de Claude Code
+.claude/
+
+# macOS
+.DS_Store

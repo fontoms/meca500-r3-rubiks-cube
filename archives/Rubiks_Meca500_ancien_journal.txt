@@ -1,0 +1,16 @@
+TCP_Z = 94.5 mm | doigts : bout à 16 mm du bas du cube, extension à 12 mm au-dessus
+=== Test « prise »
+=== Test « rotation+90 »
+=== Test « couche+90 »
+=== Test « couche-90 »
+=== Test « bascule+90 »
+=== Test « bascule-90 »
+Bilan :
+prise        OK
+rotation+90  OK
+couche+90    OK
+couche-90    OK
+bascule+90   OK
+bascule-90   OK
+Scripts robot réel : /Users/colin/RoboDK/tests_physiques
+Projet enregistré : /Users/colin/Desktop/Rubiks_Meca500.rdk

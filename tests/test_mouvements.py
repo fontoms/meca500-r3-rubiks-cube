@@ -55,10 +55,26 @@ class _Controles:
         v = verifier.verifier_mouvement(type(self).mouvement)
         assert not v.problemes, "\n".join(v.problemes)
 
+    @pytest.mark.robodk
+    def test_collisions_robodk(self):
+        """Robot, pince, vrais doigts et cube tenu contre le vrai socle, la table, la caméra et le cube."""
+        import banc_essais
+        import simulateur
+        banc_essais.preparer_scene([])
+        try:
+            problemes = simulateur.tester_collisions(type(self).mouvement.__name__)
+        finally:
+            banc_essais.preparer_scene([])
+        assert not problemes, "\n".join("%s : %s" % (e, ", ".join(o)) for e, o in problemes)
+
     @pytest.mark.simulation
     def test_simulation_robodk(self):
         import simulateur
         simulateur.simuler(type(self).mouvement.__name__)
+
+
+class TestVerifierOutil(_Controles):
+    mouvement = rubiks.verifier_outil
 
 
 class TestPrendreEtReposer(_Controles):
@@ -141,9 +157,16 @@ def test_presenter_faces_pose_le_cube_sur_la_table():
 
 
 def test_dimensions_identiques_robot_et_simulation():
-    """meca500_rubiks/reglages.py et simulation/parametres.py doivent décrire la même cellule."""
+    """La simulation reprend la géométrie de meca500_rubiks/reglages.py (source unique)."""
     import parametres as P
-    assert rubiks.TCP == pytest.approx(P.TCP_Z, abs=0.01)
-    assert rubiks.SOCLE == pytest.approx((P.SOCLE_X, P.SOCLE_Y, P.HAUTEUR_SOCLE), abs=0.01)
-    assert rubiks.COTE_CUBE == pytest.approx(P.COTE_CUBE, abs=0.01)
-    assert rubiks.TABLE == pytest.approx((P.TABLE_X, P.TABLE_Y, P.HAUTEUR_TABLE), abs=0.01)
+    assert P.TCP == rubiks.TCP
+    assert (P.SOCLE_X, P.SOCLE_Y, P.HAUTEUR_SOCLE) == rubiks.SOCLE
+    assert (P.TABLE_X, P.TABLE_Y, P.HAUTEUR_TABLE) == rubiks.TABLE
+    assert P.COTE_CUBE == rubiks.COTE_CUBE
+
+
+def test_maillages_presents():
+    import os
+    import parametres as P
+    for f in (P.FICHIER_SOCLE, P.FICHIER_DOIGT_1, P.FICHIER_DOIGT_2):
+        assert os.path.isfile(f), f

@@ -10,7 +10,7 @@ from .reglages import (DUREE_PHOTO, DUREE_PINCE, H_ATTENTE, H_CUBE, LEVEE, SOCLE
 
 def preparer(robot):
     """Réglages de l'outil et des vitesses, pince ouverte, position d'attente."""
-    robot.SetTrf(0, 0, TCP, 0, 0, 0)
+    robot.SetTrf(*TCP)                   # TCP = centre des patins des doigts
     robot.SetBlending(0)                 # passer exactement par chaque point (on est près du cube)
     robot.SetCartLinVel(VITESSE_LINEAIRE)
     robot.SetCartAngVel(VITESSE_ANGULAIRE)

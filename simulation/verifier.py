@@ -26,7 +26,7 @@ import meca500_rubiks as rubiks                 # noqa: E402
 from connexion_robodk import RDK                # noqa: E402
 
 from robodk.robolink import ITEM_TYPE_ROBOT     # noqa: E402
-from robodk.robomath import TxyzRxyz_2_Pose, pi, pose_2_quaternion, quaternion_2_pose, transl  # noqa: E402
+from robodk.robomath import TxyzRxyz_2_Pose, pi, pose_2_quaternion, quaternion_2_pose  # noqa: E402
 
 MARGE_BUTEE = 10.0       # ° minimum avant une butée articulaire
 MARGE_POIGNET = 10.0     # ° minimum pour |J5| (singularité du poignet à J5 = 0)
@@ -60,7 +60,7 @@ class RobotVerificateur:
         bas, haut, _ = self.robot.JointLimits()
         self.bas, self.haut = bas.list()[:6], haut.list()[:6]
         self.joints = self.robot.Joints().list()[:6]
-        self.tcp = transl(0, 0, rubiks.TCP)
+        self.tcp = _pose(rubiks.TCP)     # bride → TCP (centre des patins des doigts)
         self.pose = None
         self.pires = {}                  # (étape, type) -> (valeur, message) : pire cas seulement
         self.marge_butee = (999.0, "")
@@ -143,7 +143,10 @@ class RobotVerificateur:
         pass
 
     Connect = ActivateAndHome = WaitHomed = WaitIdle = DeactivateRobot = Disconnect = _rien
-    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = SetTrf = _rien
+    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = _rien
+
+    def SetTrf(self, *p):
+        self.tcp = _pose(p)
     GripperOpen = GripperClose = Delay = prendre_photo = _rien
 
 
