@@ -18,12 +18,18 @@ haut. L'orientation du cube est suivie d'un coup à l'autre (on ne le remet pas 
 par coup. Les tables du solveur (~80 Mo) sont dans solveur_tables/ : python installer_solveur.py.
 """
 import contextlib
+import functools
+import heapq
 import io
 import os
 import re
+import time
 
+from .briques import position_attente, preparer, tourner_pince
+from .duree import Chronometre
 from .modele_cube import DIR_FACE, FACE_DIR, chemin_vers_bas, cross, mul, mulm, rot_quart, transp
 from .mouvements import ETAPES_PHOTO, basculer, tourner_cube, tourner_haut
+from .reglages import ROTATION_BASCULE, ROTATIONS_PINCE
 
 DOSSIER_PROJET = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOSSIER_TABLES = os.path.join(DOSSIER_PROJET, "solveur_tables")   # contient twophase/ (les tables)
@@ -109,6 +115,45 @@ def calculer_solution(cubestring, max_coups=MAX_COUPS, temps_max=TEMPS_MAX):
     return lire_solution(texte)
 
 
+def _toutes_les_rotations():
+    """Les 24 orientations d'un cube (matrices 3x3 entières), l'identité en premier."""
+    vues, file = [], [rot_quart(0, 0)]
+    while file:
+        m = file.pop(0)
+        if m not in vues:
+            vues.append(m)
+            file += [mulm(rot_quart(axe, 1), m) for axe in range(3)]
+    return vues
+
+
+ROTATIONS_CUBE = _toutes_les_rotations()
+BUDGET_RECHERCHE = 10.0     # s : temps de calcul max pour chercher la solution la plus rapide à jouer
+
+
+def meilleure_solution(cubestring, budget=BUDGET_RECHERCHE, rotations=None):
+    """(coups, étapes) : la solution la plus RAPIDE À JOUER pour le robot, pas forcément la plus courte.
+
+    Le solveur ne trouve qu'une solution parmi beaucoup d'autres, et ne sait rien du robot. On lui
+    donne donc le même cube vu sous plusieurs orientations (comme si on le tournait en entier) : il
+    trouve à chaque fois une autre solution, qu'on traduit pour le cube réel ; on garde celle dont le
+    plan du robot (plan_robot) est le plus rapide. On s'arrête après `budget` secondes de calcul.
+    """
+    s = verifier_cubestring(cubestring)
+    debut = time.time()
+    meilleur = None
+    for rotation in (rotations or ROTATIONS_CUBE):
+        reste = budget - (time.time() - debut)
+        if meilleur is not None and reste <= 0:
+            break
+        coups_tournes = calculer_solution(tourner_cubestring(s, rotation), temps_max=max(reste, 1.0))
+        retour = transp(rotation)                 # face du cube tourné → face du cube réel
+        coups = [(FACE_DIR[mul(retour, DIR_FACE[f])], k) for f, k in coups_tournes]
+        etapes = plan_robot(coups)
+        if meilleur is None or duree_plan(etapes) < duree_plan(meilleur[1]):
+            meilleur = (coups, etapes)
+    return meilleur
+
+
 # ----------------------------- Cube tourné en entier (presenter_faces) -----------------------------
 
 # Haut de chaque face quand on la regarde de l'extérieur (convention Kociemba) : les 9 cases sont lues
@@ -173,47 +218,197 @@ def vue_camera(orientation):
 
 
 # ----------------------------- Traduction en mouvements du robot -----------------------------
+#
+# Une ÉTAPE du plan est un triplet (nom, argument, prise) :
+#   ("tourner_haut", angle, prise)   2 couches du haut tournées de angle (±90, ±180)
+#   ("tourner_cube", angle, prise)   cube entier tourné de angle autour de la verticale (±90, ±180)
+#   ("basculer", sens, prise)        bascule (±1, autour de X), pince tournée de prise = ±90°
+#   ("tourner_pince", vers, depuis)  pince ouverte, en l'air : tourne de `depuis` à `vers`
+# prise = rotation de la pince quand elle saisit le cube ; elle le lâche tournée de prise + angle.
 
-def plan_robot(coups):
-    """Mouvements du robot pour jouer `coups` : liste de (fonction, argument), fonction parmi
-    "basculer" (±1, autour de X), "tourner_cube" (±90°) et "tourner_haut" (±90°).
+def _tourner_pince(robot, vers, depuis):
+    tourner_pince(robot, vers, depuis)
 
-    On suit l'orientation du cube : pour chaque coup, on amène la face en bas par le plus court chemin,
-    puis tourner la face du bas de k quarts (sens horaire vu de dessous) revient, à l'orientation près,
-    à tourner les 2 couches du haut de -k quarts autour de la verticale.
+
+def _tourner_cube(robot, angle, prise):
+    tourner_cube(robot, angle, prise=prise)
+
+
+def _tourner_haut(robot, angle, prise):
+    tourner_haut(robot, angle, prise=prise)
+
+
+def _basculer(robot, sens, prise):
+    basculer(robot, sens, prise=prise)
+
+
+MOUVEMENTS_ROBOT = {"tourner_pince": _tourner_pince, "tourner_cube": _tourner_cube,
+                    "tourner_haut": _tourner_haut, "basculer": _basculer}
+
+
+def rotation_pince_apres(etape):
+    """Rotation de la pince (position d'attente) à la fin de l'étape."""
+    nom, arg, prise = etape
+    if nom == "tourner_pince":
+        return arg
+    return prise if nom == "basculer" else prise + arg
+
+
+@functools.lru_cache(maxsize=None)
+def duree_etape(etape):
+    """Durée estimée (s) d'une étape, pince partant de la position d'attente (duree.Chronometre)."""
+    nom, arg, prise = etape
+    robot = Chronometre()
+    preparer(robot)
+    position_attente(robot, rotation=prise)       # pour tourner_pince, prise = rotation de départ
+    robot.temps = 0.0
+    MOUVEMENTS_ROBOT[nom](robot, arg, prise)
+    return robot.temps
+
+
+def duree_plan(etapes):
+    return sum(duree_etape(e) for e in etapes)
+
+
+def nombre_de_prises(etapes):
+    return sum(1 for nom, _, _ in etapes if nom != "tourner_pince")
+
+
+FACE_OPPOSEE = {"U": "D", "D": "U", "R": "L", "L": "R", "F": "B", "B": "F"}
+ANGLES = (-180, -90, 90, 180)
+BAS = (0, 0, -1)
+
+
+def _cle(orientation):
+    return tuple(tuple(ligne) for ligne in orientation)
+
+
+def _groupes(coups):
+    """Coups regroupés quand ils peuvent se jouer dans n'importe quel ordre : deux coups de suite
+    sur des faces opposées (ex. U puis D') commutent."""
+    groupes, i = [], 0
+    while i < len(coups):
+        n = 2 if i + 1 < len(coups) and coups[i + 1][0] == FACE_OPPOSEE[coups[i][0]] else 1
+        groupes.append(tuple(coups[i:i + n]))
+        i += n
+    return groupes
+
+
+def _transitions(groupe, g, faits, cle, pince):
+    """Étapes possibles depuis un état (g, faits, orientation, pince) : (étape, nouvel état)."""
+    orientation = [list(ligne) for ligne in cle]
+    for vers in ROTATIONS_PINCE:                                   # tourner la pince en l'air
+        if vers != pince:
+            yield ("tourner_pince", vers, pince), (g, faits, cle, vers)
+    for angle in ANGLES:                                           # tourner le cube entier
+        if pince + angle in ROTATIONS_PINCE:
+            o = mulm(rot_quart(2, angle // 90), orientation)
+            yield ("tourner_cube", angle, pince), (g, faits, _cle(o), pince + angle)
+    if abs(pince) == ROTATION_BASCULE:                             # basculer
+        for sens in (1, -1):
+            o = mulm(rot_quart(0, sens), orientation)
+            yield ("basculer", sens, pince), (g, faits, _cle(o), pince)
+    for j, (face, k) in enumerate(groupe):                         # jouer un coup du groupe (face en bas)
+        if faits & (1 << j) or mul(orientation, DIR_FACE[face]) != BAS:
+            continue
+        nouveaux = faits | (1 << j)
+        suite = (g + 1, 0) if nouveaux == (1 << len(groupe)) - 1 else (g, nouveaux)
+        for angle in ((-180, 180) if k == 2 else (-90 * k,)):
+            if pince + angle in ROTATIONS_PINCE:
+                o = mulm(rot_quart(2, angle // 90), orientation)
+                yield ("tourner_haut", angle, pince), suite + (_cle(o), pince + angle)
+
+
+def plan_robot(coups, rotation_pince=0.0, finir_a_zero=True):
+    """Mouvements du robot (liste d'étapes, voir plus haut) qui jouent `coups` LE PLUS VITE POSSIBLE.
+
+    Le robot ne tourne que la face du bas (en tournant les 2 couches du haut, le socle tient celle du
+    bas) : tourner la face du bas de k quarts (sens horaire vu de dessous) revient, à l'orientation près,
+    à tourner les 2 couches du haut de -k quarts. Avant chaque coup, il faut donc amener la face en bas
+    (bascules, rotations du cube entier).
+
+    Recherche du plus court chemin (algorithme de Dijkstra) : un ÉTAT est (coups déjà joués,
+    orientation du cube, rotation de la pince) ; passer d'un état à un autre = une étape, qui coûte sa
+    durée estimée. On obtient la suite d'étapes la plus rapide, en choisissant :
+      - comment amener chaque face en bas (bascule à gauche ou à droite, tourner le cube avant…) ;
+      - la rotation de la pince à chaque prise (-90°, 0°, +90°), pour ne pas la remettre à 0° à chaque fois ;
+      - l'ordre de deux coups sur des faces opposées (ils commutent) ;
+      - le sens des demi-tours (+180° ou -180°, en une seule prise).
+    rotation_pince : rotation de la pince au départ ; finir_a_zero : remettre la pince à 0° à la fin.
     """
+    groupes = _groupes(coups)
+    depart = (0, 0, _cle(rot_quart(0, 0)), rotation_pince)
+    meilleur, precedent = {depart: 0.0}, {}
+    tas, compteur, fin = [(0.0, 0, depart)], 1, None
+    while tas:
+        cout, _, etat = heapq.heappop(tas)
+        if cout > meilleur[etat]:
+            continue                                               # déjà atteint plus vite
+        g, faits, cle, pince = etat
+        if g == len(groupes):
+            if not finir_a_zero or pince == 0.0:
+                fin = etat
+                break
+            suivants = [(("tourner_pince", 0.0, pince), (g, faits, cle, 0.0))]
+        else:
+            suivants = _transitions(groupes[g], g, faits, cle, pince)
+        for etape, nouvel in suivants:
+            c = cout + duree_etape(etape)
+            if c < meilleur.get(nouvel, float("inf")) - 1e-9:
+                meilleur[nouvel], precedent[nouvel] = c, (etat, etape)
+                heapq.heappush(tas, (c, compteur, nouvel))
+                compteur += 1
+    etapes = []
+    while fin != depart:
+        fin, etape = precedent[fin]
+        etapes.append(etape)
+    return etapes[::-1]
+
+
+def plan_simple(coups):
+    """Plan d'avant l'optimisation, gardé pour comparer : face amenée en bas par le plus court chemin,
+    demi-tour en 2 quarts, pince remise à 0° après chaque mouvement."""
     orientation = rot_quart(0, 0)
     etapes = []
+
+    def ajouter(nom, arg, prise):
+        etapes.append((nom, arg, prise))
+        fin = rotation_pince_apres(etapes[-1])
+        if fin != 0.0:
+            etapes.append(("tourner_pince", 0.0, fin))
+
     for face, k in coups:
         for op, a in chemin_vers_bas(mul(orientation, DIR_FACE[face])):
             if op == "B":
-                etapes.append(("basculer", a))
+                etapes.append(("tourner_pince", ROTATION_BASCULE, 0.0))
+                ajouter("basculer", a, ROTATION_BASCULE)
                 orientation = mulm(rot_quart(0, a), orientation)
             else:
-                etapes.append(("tourner_cube", 90 * a))
+                ajouter("tourner_cube", 90 * a, 0.0)
                 orientation = mulm(rot_quart(2, a), orientation)
-        for q in ([-1, -1] if k == 2 else [-k]):           # demi-tour : 2 quarts (câble : J6 limité)
-            etapes.append(("tourner_haut", 90 * q))
+        for q in ([-1, -1] if k == 2 else [-k]):
+            ajouter("tourner_haut", 90 * q, 0.0)
             orientation = mulm(rot_quart(2, q), orientation)
     return etapes
 
 
-MOUVEMENTS_ROBOT = {"basculer": basculer, "tourner_cube": tourner_cube, "tourner_haut": tourner_haut}
-
-
 def decrire(etape):
-    nom, arg = etape
+    nom, arg, prise = etape
+    if nom == "tourner_pince":
+        return "tourner_pince  %+.0f° -> %+.0f°" % (prise, arg)
     if nom == "basculer":
-        return "basculer_%s" % ("droite" if arg > 0 else "gauche")
-    return "%s_%s" % (nom, "gauche" if arg > 0 else "droite")
+        texte = "basculer_%s" % ("droite" if arg > 0 else "gauche")
+    else:
+        texte = "%s_%s" % (nom, "demi_tour" if abs(arg) == 180 else ("gauche" if arg > 0 else "droite"))
+    return "%-24s (pince %+.0f°)" % (texte, prise)
 
 
 def executer(robot, etapes, afficher=print):
     """Fait jouer les étapes au robot (vrai robot ou simulation), une par une."""
     for i, etape in enumerate(etapes, 1):
         afficher("  %2d/%d  %s" % (i, len(etapes), decrire(etape)))
-        nom, arg = etape
-        MOUVEMENTS_ROBOT[nom](robot, arg)
+        nom, arg, prise = etape
+        MOUVEMENTS_ROBOT[nom](robot, arg, prise)
 
 
 def ecrire(coups):
@@ -222,8 +417,8 @@ def ecrire(coups):
 
 def resoudre(robot, cubestring, afficher=print):
     """Calcule la solution du cube décrit par `cubestring` et la fait jouer au robot. Renvoie les coups."""
-    coups = calculer_solution(cubestring)
-    etapes = plan_robot(coups)
-    afficher("Solution (%d coups) : %s — %d mouvements du robot" % (len(coups), ecrire(coups), len(etapes)))
+    coups, etapes = meilleure_solution(cubestring)
+    afficher("Solution (%d coups) : %s — %d prises du robot, ~%.0f s"
+             % (len(coups), ecrire(coups), nombre_de_prises(etapes), duree_plan(etapes)))
     executer(robot, etapes, afficher)
     return coups

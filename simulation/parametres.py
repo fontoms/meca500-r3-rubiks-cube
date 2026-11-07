@@ -119,5 +119,11 @@ PAUSE_PHOTO = 1.0                 # s de pause simulée à chaque photo
 
 # ======================= Vitesses de la simulation =======================
 
-VITESSE_LIN = 35.0
-VITESSE_ART = 45.0
+# Animation : mêmes vitesses que le vrai robot (reglages.py), pour voir le vrai rythme dans RoboDK.
+VITESSE_LIN = R.VITESSE_LINEAIRE              # mm/s
+VITESSE_ART = R.VITESSE_ANGULAIRE             # °/s (RoboDK : une seule vitesse pour toutes les articulations)
+# Accélérations : celles de RoboDK par défaut sont très faibles ; sur des déplacements de 40 mm le robot
+# simulé passait son temps à accélérer, et changer les vitesses de reglages.py ne changeait presque rien.
+# Ordre de grandeur pour le Meca500 (accélérations par défaut de Mecademic, non mesurées) :
+ACCEL_LIN = 2000.0                            # mm/s²
+ACCEL_ART = 2000.0                            # °/s²

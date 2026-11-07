@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """Briques de base, réutilisées par tous les mouvements (le robot est un objet mecademicpy,
-ou un faux robot pour la simulation RoboDK et les tests)."""
+ou un faux robot pour la simulation RoboDK et les tests).
+
+`rotation` : rotation de la pince autour de la verticale (voir poses.pose), une des
+ROTATIONS_PINCE (-90°, 0°, +90°). Entre deux mouvements de la résolution, la pince reste en position
+d'attente avec la rotation où elle a lâché le cube : on ne la tourne que si le mouvement suivant en a besoin.
+"""
 import time
 
 from .poses import pose
@@ -20,9 +25,29 @@ def preparer(robot):
     robot.WaitIdle(60)
 
 
-def position_attente(robot, lieu=SOCLE):
+def position_attente(robot, lieu=SOCLE, rotation=0.0):
     """Pince verticale au-dessus du cube (posé dans le socle, ou sur la table : lieu=TABLE)."""
-    robot.MovePose(*pose(H_ATTENTE, lieu=lieu))
+    robot.MovePose(*pose(H_ATTENTE, rotation=rotation, lieu=lieu))
+
+
+def etapes_de_rotation(depuis, vers):
+    """Angles successifs pour tourner de `depuis` à `vers` par pas de 90° au plus (le dernier = vers).
+
+    Un demi-tour en un seul déplacement est ambigu (le robot peut tourner dans un sens ou dans
+    l'autre, et enrouler le câble de la pince) : on passe par les multiples de 90° intermédiaires.
+    """
+    pas = 90.0 if vers > depuis else -90.0
+    angles, a = [], depuis
+    while abs(vers - a) > 90.0:
+        a += pas
+        angles.append(a)
+    return angles + [vers] if vers != depuis else []
+
+
+def tourner_pince(robot, vers, depuis=0.0, lieu=SOCLE):
+    """Pince ouverte, en position d'attente : tourne de la rotation `depuis` à la rotation `vers`."""
+    for a in etapes_de_rotation(depuis, vers):
+        position_attente(robot, lieu, a)
 
 
 def ouvrir_pince(robot):
@@ -40,19 +65,28 @@ def aller(robot, hauteur, inclinaison=0.0, rotation=0.0, recul=0.0, lieu=SOCLE):
     robot.MoveLin(*pose(hauteur, inclinaison, rotation, recul, lieu))
 
 
-def saisir(robot, hauteur, lieu=SOCLE):
-    """Depuis la position d'attente : ouvre, descend à la hauteur voulue, ferme."""
-    position_attente(robot, lieu)
-    ouvrir_pince(robot)
-    aller(robot, hauteur, lieu=lieu)
+def aller_en_tournant(robot, hauteur, depuis, vers, lieu=SOCLE):
+    """Pince verticale à `hauteur` : tourne de `depuis` à `vers`, par pas de 90° au plus."""
+    for a in etapes_de_rotation(depuis, vers):
+        aller(robot, hauteur, rotation=a, lieu=lieu)
+
+
+def saisir(robot, hauteur, lieu=SOCLE, rotation=0.0):
+    """Depuis la position d'attente (pince ouverte, déjà tournée de `rotation`) : descend, ferme.
+
+    La pince est toujours ouverte entre deux mouvements : on renvoie GripperOpen par sécurité, sans
+    attendre DUREE_PINCE (elle est déjà ouverte, et sinon elle s'ouvre pendant la descente).
+    """
+    position_attente(robot, lieu, rotation)
+    robot.GripperOpen()
+    aller(robot, hauteur, rotation=rotation, lieu=lieu)
     fermer_pince(robot)
 
 
 def lacher_et_remonter(robot, rotation=0.0, lieu=SOCLE):
-    """Ouvre, remonte à la verticale, revient en position d'attente."""
+    """Ouvre, remonte à la verticale jusqu'à la position d'attente (la pince garde sa rotation)."""
     ouvrir_pince(robot)
     aller(robot, H_ATTENTE, rotation=rotation, lieu=lieu)
-    position_attente(robot, lieu)
     robot.WaitIdle(120)
 
 

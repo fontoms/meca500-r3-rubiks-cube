@@ -187,7 +187,7 @@ def verifier_tout(afficher=True):
     lignes += ["", "TOUS LES MOUVEMENTS SONT VALIDES" if tout_ok else "ATTENTION : au moins un mouvement pose problème"]
     texte = "\n".join(lignes)
     os.makedirs(P.DOSSIER_JOURNAL, exist_ok=True)
-    with open(os.path.join(P.DOSSIER_JOURNAL, "verification.txt"), "w") as f:
+    with open(os.path.join(P.DOSSIER_JOURNAL, "verification.txt"), "w", encoding="utf-8") as f:
         f.write(texte + "\n")
     print(texte)
     if afficher:

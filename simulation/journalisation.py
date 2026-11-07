@@ -18,7 +18,7 @@ def ecrire_journal():
         return
     try:
         os.makedirs(P.DOSSIER_JOURNAL, exist_ok=True)
-        with open(os.path.join(P.DOSSIER_JOURNAL, P.JOURNAL), "w") as f:
+        with open(os.path.join(P.DOSSIER_JOURNAL, P.JOURNAL), "w", encoding="utf-8") as f:
             f.write("\n".join(lignes_journal) + "\n")
     except OSError as e:
         print("Journal non écrit : %s" % e)

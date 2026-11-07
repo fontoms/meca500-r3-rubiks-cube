@@ -58,10 +58,10 @@ class RobotSimule:
 
         self.robot.setPoseFrame(self.robot.Parent())     # MoveLin : repère de base du robot
         self.robot.setPoseTool(self.outil)
-        self.robot.setSpeed(P.VITESSE_LIN, P.VITESSE_ART)
+        self.robot.setSpeed(P.VITESSE_LIN, P.VITESSE_ART, P.ACCEL_LIN, P.ACCEL_ART)
         self.tenus = []
         self._placer_doigts(0.0)                          # pince ouverte
-        self.journal = open(os.path.join(P.DOSSIER_JOURNAL, "dernier_mouvement.txt"), "w")
+        self.journal = open(os.path.join(P.DOSSIER_JOURNAL, "dernier_mouvement.txt"), "w", encoding="utf-8")
         self.verifier_collisions = collisions
         self.collisions = []                              # [(commande, [objets en collision])]
         self.etape = ""
@@ -193,9 +193,13 @@ class RobotSimule:
         self._noter("MoveJoints%s" % (j,))
         self.robot.MoveJ(list(j))
 
+    def _attendre(self, secondes):
+        """Pause visible dans RoboDK (robot.Pause ne bloque pas quand on pilote le robot depuis Python)."""
+        time.sleep(secondes / max(RDK.SimulationSpeed(), 1e-3))
+
     def Delay(self, secondes):
         if not self.verifier_collisions:
-            self.robot.Pause(secondes * 1000)
+            self._attendre(secondes)
 
     # ---------------- pince ----------------
     def _placer_doigts(self, serrage):
@@ -261,7 +265,7 @@ class RobotSimule:
         self._noter("Photo face %s" % face)
         if not self.verifier_collisions:
             RDK.ShowMessage("Photo : face « %s »" % face, False)
-            self.robot.Pause(P.PAUSE_PHOTO * 1000)
+            self._attendre(P.PAUSE_PHOTO)
 
     # ---------------- commandes sans effet en simulation ----------------
     def _rien(self, *args, **kwargs):
@@ -283,9 +287,10 @@ def remise_a_zero():
 
 
 def tester_collisions(nom):
-    """Rejoue le mouvement `nom` en testant chaque déplacement (collisions, atteignabilité).
-    Ne s'anime pas. Renvoie la liste [(commande, [objets])] des problèmes (vide = OK)."""
-    mouvement = getattr(rubiks, nom)
+    """Rejoue le mouvement `nom` (ou une fonction mouvement(robot)) en testant chaque déplacement
+    (collisions, atteignabilité). Ne s'anime pas. Renvoie la liste [(commande, [objets])] des problèmes
+    (vide = OK)."""
+    mouvement = getattr(rubiks, nom) if isinstance(nom, str) else nom
     robot = RobotSimule(collisions=True)
     try:
         rubiks.preparer(robot)
@@ -317,7 +322,7 @@ def simuler(nom):
         RDK.ShowMessage("%s : terminé" % nom, False)
     except Exception as e:
         import traceback
-        with open(os.path.join(P.DOSSIER_JOURNAL, "erreur.txt"), "w") as f:
+        with open(os.path.join(P.DOSSIER_JOURNAL, "erreur.txt"), "w", encoding="utf-8") as f:
             f.write("%s\n%s" % (nom, traceback.format_exc()))
         RDK.ShowMessage("Échec de « %s » : %s (détails : journal/erreur.txt)" % (nom, e), False)
         raise

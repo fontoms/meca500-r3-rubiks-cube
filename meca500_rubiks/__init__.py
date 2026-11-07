@@ -24,8 +24,9 @@ ce que tu vois dans RoboDK est exactement ce que fera le robot.
 """
 from .reglages import *        # noqa: F401,F403
 from .poses import pose        # noqa: F401
-from .briques import (aller, fermer_pince, lacher_et_remonter, ouvrir_pince,  # noqa: F401
-                      photographier, position_attente, preparer, saisir)
+from .briques import (aller, aller_en_tournant, etapes_de_rotation, fermer_pince,  # noqa: F401
+                      lacher_et_remonter, ouvrir_pince, photographier, position_attente, preparer, saisir,
+                      tourner_pince)
 from .mouvements import *      # noqa: F401,F403
 from .mouvements import MOUVEMENTS  # noqa: F401
 from .robot_reel import connecter, deconnecter, menu  # noqa: F401

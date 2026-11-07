@@ -7,10 +7,20 @@ standard, doigts imprimés (modeles_3D/doigts), socle Cube_holder.stl (modeles_3
 
 ADRESSE_IP = "192.168.0.100"
 
-VITESSE_LINEAIRE = 20.0      # mm/s   (lent pour les premiers essais)
-VITESSE_ANGULAIRE = 30.0     # °/s    rotations de la pince
-VITESSE_ARTICULAIRE = 10.0   # % de la vitesse max des articulations
-DUREE_PINCE = 0.5            # s      attente après ouverture / fermeture
+# Vitesses. Limites du Meca500 R3 : SetCartLinVel ≤ 5000 mm/s (défaut 150), SetCartAngVel ≤ 1000 °/s
+# (défaut 45), SetJointVel ≤ 100 % (défaut 25 %) ; articulations J1…J6 : 150, 150, 180, 300, 300, 500 °/s.
+# On reste loin des maximums : le cube, tenu par frottement, ne doit pas glisser dans la pince.
+# Premiers essais (cube résolu du premier coup) : 20 mm/s, 30 °/s, 10 %. À valider sur le vrai robot.
+VITESSE_LINEAIRE = 200.0     # mm/s
+VITESSE_ANGULAIRE = 180.0    # °/s
+VITESSE_ARTICULAIRE = 50.0   # %
+DUREE_PINCE = 0.5            # s
+
+# Rotations de la pince (autour de la verticale, poses.pose) où elle peut saisir le cube. Le socle est
+# symétrique sur ses 4 côtés et les 2 doigts sont identiques : prise à -90°, 0° ou +90° équivalente.
+# La pince ne sort jamais de [-90°, +90°] (un demi-tour va de +90° à -90°) : J6 reste loin des ±180°
+# permis par le câble de la pince.
+ROTATIONS_PINCE = (-90.0, 0.0, 90.0)
 
 SOCLE = (170.0, 0.0, 7.0)    # centre du fond de la poche du socle, où repose le cube (x, y, z) :
 #                              socle posé sur la plaque du robot, le cube repose 7 mm au-dessus

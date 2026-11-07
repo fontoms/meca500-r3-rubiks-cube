@@ -30,10 +30,16 @@ from robodk import robolink                                  # noqa: E402
 from connexion_robodk import RDK                             # noqa: E402
 from journalisation import ecrire_journal, lignes_journal, log  # noqa: E402
 
-# Chemin absolu écrit en dur : RoboDK peut exécuter le programme depuis une copie temporaire.
-GABARIT_PROGRAMME = '''# Programme RoboDK : exécute meca500_rubiks.{nom}() dans la simulation.
+# RoboDK exécute le programme depuis une copie temporaire : on retrouve le projet grâce au dossier de la
+# station ouverte (Rubiks_Meca500.rdk est à la racine du projet). Aucun chemin écrit en dur : les
+# programmes marchent sur tous les ordinateurs (Mac, Windows) sans reconstruire la station.
+GABARIT_PROGRAMME = '''# -*- coding: utf-8 -*-
+# Programme RoboDK : exécute meca500_rubiks.{nom}() dans la simulation.
+import os
 import sys
-sys.path.insert(0, {dossier!r})
+from robodk import robolink
+projet = robolink.Robolink().getParam("PATH_OPENSTATION")    # dossier de Rubiks_Meca500.rdk
+sys.path.insert(0, os.path.join(projet, "simulation"))
 import simulateur
 simulateur.simuler({nom!r})
 '''
@@ -53,8 +59,8 @@ def installer_mouvements():
         it.Delete()
     for nom in noms:
         chemin = os.path.join(P.DOSSIER_PROGRAMMES, nom + ".py")
-        with open(chemin, "w") as f:
-            f.write(GABARIT_PROGRAMME.format(nom=nom, dossier=P.DOSSIER_SIMULATION))
+        with open(chemin, "w", encoding="utf-8") as f:
+            f.write(GABARIT_PROGRAMME.format(nom=nom))
         prog = RDK.AddFile(chemin)
         if prog.Valid():
             prog.setName(nom)

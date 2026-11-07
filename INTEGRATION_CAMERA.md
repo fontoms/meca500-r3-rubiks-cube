@@ -31,7 +31,8 @@ Points d'entrée (tous dans `meca500_rubiks/resolution.py`, sauf mention) :
 | `verifier_cubestring(s)` | contrôle le format (54 lettres, 9 de chaque, centres URFDLB) |
 | `cubestring_apres_presenter_faces(s)` | convertit le cubestring des photos pour le cube remis dans le socle |
 | `calculer_solution(s)` | solution `[(face, k)]` (twophase), sans bouger le robot |
-| `plan_robot(coups)` | mouvements du robot correspondants (sans bouger le robot) |
+| `plan_robot(coups)` | mouvements du robot correspondants, le plan le plus rapide (sans bouger le robot) |
+| `meilleure_solution(s)` | `(coups, étapes)` : la solution la plus rapide à jouer pour le robot (utilisée par `resoudre`) |
 | `resoudre(robot, s)` | calcule et fait jouer la solution |
 | `python resoudre_cube.py <cubestring> [--sans-robot]` | la même chose en ligne de commande |
 

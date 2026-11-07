@@ -73,23 +73,30 @@ def mode_tests():
     for ligne in lignes:
         log(ligne)
     os.makedirs(P.DOSSIER_JOURNAL, exist_ok=True)
-    with open(os.path.join(P.DOSSIER_JOURNAL, "collisions.txt"), "w") as f:
+    with open(os.path.join(P.DOSSIER_JOURNAL, "collisions.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(lignes) + "\n")
     return bilan
 
 
 # ----------------------------- MODE "resolution" -----------------------------
 
-def jouer(robot, modele, etape):
-    """Une étape du plan de resolution.py, jouée par le robot et appliquée au modèle du cube."""
-    nom, a = etape
-    resolution.MOUVEMENTS_ROBOT[nom](robot, a)
+def appliquer(modele, etape):
+    """Effet d'une étape du plan (resolution.py) sur le modèle du cube."""
+    nom, a, _ = etape
     if nom == "basculer":
         modele.tourner(rot_quart(0, a))
     elif nom == "tourner_cube":
         modele.tourner(rot_quart(2, a // 90))
-    else:                                            # tourner_haut : les 2 couches du haut
+    elif nom == "tourner_haut":                      # les 2 couches du haut
         modele.tourner(rot_quart(2, a // 90), lambda p: p[2] >= 0)
+    # tourner_pince : pince ouverte, en l'air, le cube ne bouge pas
+
+
+def jouer(robot, modele, etape):
+    """Une étape du plan de resolution.py, jouée par le robot et appliquée au modèle du cube."""
+    nom, a, prise = etape
+    resolution.MOUVEMENTS_ROBOT[nom](robot, a, prise)
+    appliquer(modele, etape)
 
 
 def ecart_simulation_modele(modele):
@@ -104,38 +111,50 @@ def ecart_simulation_modele(modele):
 
 
 def trouver_solution(modele, melange):
-    """Solution du cube mélangé : P.SOLUTION si renseignée, sinon le solveur twophase (comme sur le vrai
+    """(coups, étapes, source) : P.SOLUTION si renseignée, sinon le solveur twophase (comme sur le vrai
     robot, à partir du cubestring du modèle), sinon l'inverse du mélange."""
     if P.SOLUTION.strip():
-        return lire_coups(P.SOLUTION), "paramètre SOLUTION"
+        coups = lire_coups(P.SOLUTION)
+        return coups, resolution.plan_robot(coups), "paramètre SOLUTION"
     try:
-        return resolution.calculer_solution(modele.facelets()), "solveur twophase (cubestring du cube simulé)"
+        coups, etapes = resolution.meilleure_solution(modele.facelets())
+        return coups, etapes, "solveur twophase (cubestring du cube simulé)"
     except resolution.ErreurResolution as e:
-        return inverse(melange), "inverse du mélange (%s)" % e
+        coups = inverse(melange)
+        return coups, resolution.plan_robot(coups), "inverse du mélange (%s)" % e
 
 
-def mode_resolution():
+def melange_aleatoire(n, graine=None):
+    rnd = random.Random(graine)
+    return [(rnd.choice("UDFBLR"), rnd.choice((1, -1, 2))) for _ in range(n)]
+
+
+def resoudre_en_simulation(melange, coups=None, etapes=None, collisions=False, afficher=log):
+    """Cube fictif mélangé par `melange`, résolu dans RoboDK par le VRAI code du robot.
+
+    coups / etapes : solution déjà calculée (sinon : trouver_solution). Après chaque mouvement, on vérifie
+    que le cube de RoboDK suit le modèle du cube. collisions=True : chaque déplacement est testé
+    (collisions, atteignabilité) au lieu d'être animé.
+    Renvoie (cube résolu ?, durée estimée du vrai robot en s, problèmes de collision).
+    """
     import simulateur
-    if P.GRAINE_ALEATOIRE is not None:
-        random.seed(P.GRAINE_ALEATOIRE)
-    if isinstance(P.MELANGE, int):
-        melange = [(random.choice("UDFBLR"), random.choice((1, -1, 2))) for _ in range(P.MELANGE)]
-    else:
-        melange = lire_coups(P.MELANGE)
     modele = preparer_scene(melange)
-    solution, source = trouver_solution(modele, melange)
-    log("Mélange  :", ecrire_coups(melange))
-    log("Facelets :", modele.facelets())
-    log("Solution (%s, %d coups) : %s" % (source, len(solution), ecrire_coups(solution)))
+    if etapes is None:
+        coups, etapes, source = trouver_solution(modele, melange)
+        afficher("Solution (%s) :" % source)
+    afficher("Mélange  : %s" % (ecrire_coups(melange) or "(aucun)"))
+    afficher("Cubestring : %s" % modele.facelets())
+    afficher("Solution (%d coups) : %s" % (len(coups), ecrire_coups(coups)))
+    duree = resolution.duree_plan(etapes)
+    afficher("Robot : %d prises, %d étapes, durée estimée %.0f s (%d min %02d s)"
+             % (resolution.nombre_de_prises(etapes), len(etapes), duree, duree // 60, duree % 60))
 
-    robot = simulateur.RobotSimule()
+    robot = simulateur.RobotSimule(collisions=collisions)
     RDK.setSimulationSpeed(P.VITESSE_SIMULATION)
-    etapes = resolution.plan_robot(solution)
-    log("Mouvements du robot : %d" % len(etapes))
     try:
         rubiks.preparer(robot)
         for i, etape in enumerate(etapes):
-            log("mouvement %d/%d : %s" % (i + 1, len(etapes), resolution.decrire(etape)))
+            afficher("  %2d/%d  %s" % (i + 1, len(etapes), resolution.decrire(etape)))
             jouer(robot, modele, etape)
             ecart = ecart_simulation_modele(modele)
             if ecart > 2.0:
@@ -143,6 +162,16 @@ def mode_resolution():
                                    % (i + 1, ecart))
     finally:
         robot.fermer()
-    log("%s après %d coups." % ("Cube RÉSOLU" if modele.resolu() else "Séquence terminée (cube non résolu)",
-                                len(solution)))
-    return modele
+    resolu = modele.resolu()
+    afficher("%s après %d coups." % ("Cube RÉSOLU" if resolu else "Séquence terminée (cube NON résolu)", len(coups)))
+    for etape, objets in robot.collisions:
+        afficher("  COLLISION %s : %s" % (etape, ", ".join(objets)))
+    return resolu, duree, robot.collisions
+
+
+def mode_resolution():
+    if isinstance(P.MELANGE, int):
+        melange = melange_aleatoire(P.MELANGE, P.GRAINE_ALEATOIRE)
+    else:
+        melange = lire_coups(P.MELANGE)
+    return resoudre_en_simulation(melange, collisions=False)

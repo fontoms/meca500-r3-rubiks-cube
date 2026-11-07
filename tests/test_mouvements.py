@@ -113,6 +113,69 @@ class TestTournerHautDroite(_Controles):
     mouvement = rubiks.tourner_haut_droite
 
 
+class TestTournerHautDemiTour(_Controles):
+    mouvement = rubiks.tourner_haut_demi_tour
+
+
+# Toutes les étapes que le planificateur (resolution.plan_robot) peut choisir : chaque mouvement de base
+# avec chaque rotation de pince permise. Testées une par une : pince tournée en l'air jusqu'à la prise,
+# mouvement, retour à 0°.
+def _variantes():
+    from meca500_rubiks import resolution as res
+    variantes = []
+    for prise in rubiks.ROTATIONS_PINCE:
+        for angle in res.ANGLES:
+            if prise + angle in rubiks.ROTATIONS_PINCE:
+                variantes += [("tourner_cube", angle, prise), ("tourner_haut", angle, prise)]
+        if abs(prise) == rubiks.ROTATION_BASCULE:
+            variantes += [("basculer", 1, prise), ("basculer", -1, prise)]
+    return variantes
+
+
+VARIANTES = _variantes()
+
+
+def _jouer_variante(etape):
+    from meca500_rubiks import resolution as res
+
+    def mouvement(robot):
+        nom, arg, prise = etape
+        rubiks.tourner_pince(robot, prise, 0.0)
+        res.MOUVEMENTS_ROBOT[nom](robot, arg, prise)
+        rubiks.tourner_pince(robot, 0.0, res.rotation_pince_apres(etape))
+    mouvement.__name__ = "%s_%+d_pince_%+d" % (etape[0], etape[1], etape[2])
+    return mouvement
+
+
+@pytest.mark.parametrize("etape", VARIANTES, ids=lambda e: "%s%+d@%+d" % (e[0], e[1], e[2]))
+def test_variante_finit_pince_ouverte_en_attente(etape):
+    robot = FauxRobot()
+    _jouer_variante(etape)(robot)
+    assert robot.poses()[-1] == ATTENTE
+    assert [n for n in robot.noms() if n.startswith("Gripper")][-1] == "GripperOpen"
+
+
+@pytest.mark.robodk
+@pytest.mark.parametrize("etape", VARIANTES, ids=lambda e: "%s%+d@%+d" % (e[0], e[1], e[2]))
+def test_variante_cinematique_robodk(etape):
+    import verifier
+    v = verifier.verifier_mouvement(_jouer_variante(etape))
+    assert not v.problemes, "\n".join(v.problemes)
+
+
+@pytest.mark.robodk
+@pytest.mark.parametrize("etape", VARIANTES, ids=lambda e: "%s%+d@%+d" % (e[0], e[1], e[2]))
+def test_variante_collisions_robodk(etape):
+    import banc_essais
+    import simulateur
+    banc_essais.preparer_scene([])
+    try:
+        problemes = simulateur.tester_collisions(_jouer_variante(etape))
+    finally:
+        banc_essais.preparer_scene([])
+    assert not problemes, "\n".join("%s : %s" % (e, ", ".join(o)) for e, o in problemes)
+
+
 class TestPresenterFaces(_Controles):
     mouvement = rubiks.presenter_faces
 
@@ -191,3 +254,26 @@ def test_maillages_presents():
     import parametres as P
     for f in (P.FICHIER_SOCLE, P.FICHIER_DOIGT_1, P.FICHIER_DOIGT_2):
         assert os.path.isfile(f), f
+
+
+def test_programmes_robodk_lisibles_par_python():
+    """Les programmes de la station (simulation/programmes) sont en UTF-8 et compilent : sinon RoboDK
+    affiche « SyntaxError: Non-UTF-8 code » quand on clique dessus (fichiers écrits sous Windows en cp1252)."""
+    import glob
+    import os
+    import parametres as P
+    fichiers = glob.glob(os.path.join(P.DOSSIER_PROGRAMMES, "*.py"))
+    assert fichiers
+    for f in fichiers:
+        with open(f, "rb") as fichier:
+            compile(fichier.read(), f, "exec")         # comme Python : UTF-8 par défaut
+
+
+def test_programmes_robodk_sans_chemin_ecrit_en_dur():
+    """Les programmes de la station marchent sur tous les ordinateurs (Mac et Windows)."""
+    import glob
+    import os
+    import parametres as P
+    for f in glob.glob(os.path.join(P.DOSSIER_PROGRAMMES, "*.py")):
+        texte = open(f, encoding="utf-8").read()
+        assert P.DOSSIER_PROJET not in texte and "/Users/" not in texte and "C:\\\\" not in texte, f

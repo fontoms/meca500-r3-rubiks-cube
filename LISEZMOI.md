@@ -4,7 +4,7 @@
 Rubiks_Meca500/
 ├── piloter_robot.py       ← PILOTE LE VRAI ROBOT (menu, ou un seul mouvement)
 ├── placer_socle.py        ← aide au montage du socle (GUIDE_MONTAGE.md)
-├── resoudre_cube.py       ← RÉSOUT LE CUBE avec le vrai robot à partir de son cubestring
+├── resoudre_cube.py       ← RÉSOUT LE CUBE à partir de son cubestring (vrai robot, ou RoboDK : --simulation)
 ├── INTEGRATION_CAMERA.md  ← guide pour le groupe caméra (cubestring, photos, où brancher)
 ├── installer_solveur.py   ← installe le solveur twophase et ses tables (une fois par ordinateur)
 ├── solveur_tables/        ← tables du solveur (~80 Mo, ignoré par git)
@@ -13,7 +13,8 @@ Rubiks_Meca500/
 │   ├── poses.py              calcul des poses de la pince : pose(hauteur, inclinaison, rotation, recul, lieu)
 │   ├── briques.py            préparer, position d'attente, pince, aller, saisir, transférer, photographier…
 │   ├── mouvements.py         les mouvements du cube, une fonction chacun + liste MOUVEMENTS
-│   ├── resolution.py         cubestring → solution (twophase) → mouvements du robot
+│   ├── resolution.py         cubestring → solution (twophase) → plan le plus rapide → robot
+│   ├── duree.py              estimation de la durée des mouvements (sans robot)
 │   ├── modele_cube.py        modèle logiciel du cube (orientation, coups, cubestring)
 │   └── robot_reel.py         connexion / déconnexion du vrai robot, menu
 ├── Rubiks_Meca500.rdk     ← la station RoboDK pour voir les mouvements en simulation
@@ -30,8 +31,7 @@ Rubiks_Meca500/
 ├── tests/                 ← tests pytest, lançables mouvement par mouvement depuis PyCharm
 ├── journal/               ← dernier_mouvement.txt (commandes envoyées), verification.txt, erreur.txt
 ├── modeles_3D/            ← tes pièces réelles (doigts, socle) + photos du montage
-├── robot/                 ← modèle du Meca500 R3
-└── archives/              ← anciennes versions
+└── robot/                 ← modèle du Meca500 R3
 ```
 
 ## Les mouvements : `meca500_rubiks/mouvements.py`
@@ -49,6 +49,7 @@ sa position neutre). J6 reste entre −146° et +146° dans tous les mouvements 
 | `basculer_gauche` / `basculer_droite` | le cube bascule de 90° : la face du dessus part à gauche / à droite du robot |
 | `basculer_avant` / `basculer_arriere` | la face du dessus part loin du robot / vient vers le robot (3 prises) |
 | `tourner_haut_gauche` / `tourner_haut_droite` | le socle tient la couche du bas, les 2 couches du haut tournent de 90° vers la gauche / la droite |
+| `tourner_haut_demi_tour` | les 2 couches du haut tournent de 180° en une seule prise (pince de +90° à −90°) |
 | `presenter_faces` | pose le cube sur la table, présente ses 6 faces à la caméra, le remet dans le socle |
 
 Ils sont construits avec les briques de `briques.py`, et les positions sont calculées par
@@ -68,6 +69,12 @@ Les tables vont dans `solveur_tables/`, qui n'est pas suivi par git.
 python resoudre_cube.py <cubestring>               # calcule, affiche, demande Entrée, fait jouer le robot
 python resoudre_cube.py <cubestring> --sans-robot  # calcule et affiche seulement
 python resoudre_cube.py --exemple --sans-robot     # essai avec un cube mélangé d'exemple
+python resoudre_cube.py --exemple --comparer       # durée estimée avant / après optimisation
+
+# Sans le robot : simulation RoboDK (ouvrir Rubiks_Meca500.rdk), sur un cube FICTIF
+python resoudre_cube.py --exemple --simulation                 # animé, au rythme du vrai robot
+python resoudre_cube.py --melange 25 --graine 3 --simulation   # cube mélangé au hasard
+python resoudre_cube.py --exemple --simulation --collisions    # teste chaque déplacement (collisions)
 ```
 
 **Le cubestring (contrat avec le groupe caméra)** : 54 lettres `U R F D L B`, format Kociemba (faces
@@ -86,13 +93,31 @@ resolution.resoudre(robot, cubestring)
 **Comment le robot joue la solution** : il ne sait tourner que les 2 couches du haut (le socle tient
 celle du bas). Pour chaque coup, il amène la face à tourner en bas (bascules / rotations du cube),
 puis tourne les 2 couches du haut. Il suit l'orientation du cube d'un coup à l'autre au lieu de le
-remettre droit : 1 à 3 prises par quart de tour, environ 60 mouvements pour une solution de 20 coups.
-Le code du groupe solveur (`mapping.py`, `solver.py`) est conservé dans `archives/solveur_groupe/` :
-son enchaînement est juste, mais il remet le cube droit après chaque coup (6 à 12 prises par coup).
+remettre droit.
+
+**Optimisation (`resolution.py`)** : le plan le plus rapide est cherché par l'algorithme de Dijkstra
+(`plan_robot`) : un état = (coups joués, orientation du cube, rotation de la pince), chaque étape coûte
+sa durée estimée (`duree.py`). Il choisit la façon d'amener chaque face en bas, la rotation de la pince
+à chaque prise (−90°, 0°, +90° : le socle est symétrique, on ne remet plus la pince à 0° à chaque fois),
+l'ordre de deux coups sur des faces opposées, et fait les demi-tours en une seule prise.
+`meilleure_solution` donne au solveur le cube vu sous ses 24 orientations et garde la solution la plus
+rapide à jouer (~4 s de calcul). Pour une solution de 20 coups (durées estimées) :
+
+| | prises | durée |
+|---|---|---|
+| premiers essais (20 mm/s, 30 °/s, 10 %) | ~58 | ~15 min |
+| mêmes mouvements, 100 mm/s, 90 °/s, 25 % | ~58 | ~5 min 30 |
+| plan optimisé + 24 orientations, 100 mm/s, 90 °/s, 25 % | ~48 | ~3 min 50 |
+| plan optimisé + 24 orientations, 200 mm/s, 180 °/s, 50 % (réglages actuels) | ~48 | ~2 min 50 |
+
+Les vitesses se règlent dans `reglages.py` ; la simulation RoboDK les reprend (avec les accélérations de
+`simulation/parametres.py`), donc on voit le vrai rythme en cliquant sur un programme de la station.
+RoboDK ne simule pas le frottement : seul le vrai robot dit si le cube glisse dans la pince.
 
 Vérifié : `tests/test_resolution.py` (cubestring → solveur → mouvements → cube résolu, avec le modèle)
-et, dans RoboDK, `MODE = "resolution"` de `simulation/parametres.py`, qui utilise exactement le même
-code que le vrai robot.
+et, dans RoboDK, `resoudre_cube.py --simulation` (ou `MODE = "resolution"` de `simulation/parametres.py`),
+qui utilise exactement le même code que le vrai robot. Chaque variante de mouvement que le plan peut
+choisir est vérifiée dans RoboDK (cinématique et collisions) : `tests/test_mouvements.py`, `test_variante_*`.
 
 ## Piloter le vrai robot : `piloter_robot.py`
 ```
