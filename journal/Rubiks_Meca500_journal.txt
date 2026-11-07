@@ -1,0 +1,2 @@
+Programmes ajoutés dans l'arbre de la station : remise_a_zero, verifier_mouvements, prendre_et_reposer, tourner_cube_gauche, tourner_cube_droite, basculer_gauche, basculer_droite, basculer_avant, basculer_arriere, tourner_haut_gauche, tourner_haut_droite
+Projet enregistré : /Users/colin/Documents/Rubiks_Meca500/Rubiks_Meca500.rdk

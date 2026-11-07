@@ -1,0 +1,145 @@
+# -*- coding: utf-8 -*-
+"""Les mouvements du cube. Gauche / droite / avant / arrière : vu depuis le robot, vers le cube.
+
+Chaque fonction part de la position d'attente et y revient, cube reposé dans le socle, pince ouverte.
+tourner_cube et basculer peuvent aussi travailler sur la table (lieu=TABLE), pour presenter_faces.
+"""
+from .briques import (aller, fermer_pince, lacher_et_remonter, ouvrir_pince, photographier,
+                      position_attente, saisir, transferer)
+from .reglages import SOCLE, TABLE, DECALAGE_BASCULE, H_ATTENTE, H_COUCHES_HAUT, H_CUBE, INCLINAISON, LEVEE, RECUL_BASCULE
+
+
+def prendre_et_reposer(robot):
+    """Saisit le cube, le soulève de LEVEE mm et le repose (test de prise)."""
+    saisir(robot, H_CUBE)
+    aller(robot, H_CUBE + LEVEE)
+    aller(robot, H_CUBE)
+    lacher_et_remonter(robot)
+
+
+def tourner_cube(robot, angle, lieu=SOCLE):
+    """Soulève le cube, le tourne de `angle` degrés autour de la verticale, le repose."""
+    saisir(robot, H_CUBE, lieu)
+    aller(robot, H_CUBE + LEVEE, lieu=lieu)
+    aller(robot, H_CUBE + LEVEE, rotation=angle, lieu=lieu)
+    aller(robot, H_CUBE, rotation=angle, lieu=lieu)
+    lacher_et_remonter(robot, rotation=angle, lieu=lieu)
+
+
+def basculer(robot, sens, lieu=SOCLE):
+    """Bascule le cube de 90° : sens = +1 vers la droite, -1 vers la gauche.
+
+    La pince prend le cube penchée d'un côté (-45°) et le repose penchée de l'autre (+45°) :
+    le cube a tourné de 90° sans que la pince se couche.
+    """
+    depart, arrivee = -INCLINAISON * sens, INCLINAISON * sens
+    d = DECALAGE_BASCULE
+
+    position_attente(robot, lieu)
+    ouvrir_pince(robot)
+    aller(robot, H_CUBE, depart, recul=d + RECUL_BASCULE, lieu=lieu)     # approche, pince penchée
+    aller(robot, H_CUBE, depart, recul=d, lieu=lieu)                     # descente le long de son axe
+    fermer_pince(robot)
+    aller(robot, H_CUBE + LEVEE, depart, recul=d, lieu=lieu)             # soulève le cube
+    aller(robot, H_CUBE + LEVEE, arrivee, recul=d, lieu=lieu)            # bascule de 90° autour du centre du cube
+    aller(robot, H_CUBE, arrivee, recul=d, lieu=lieu)                    # repose le cube
+    ouvrir_pince(robot)
+    aller(robot, H_CUBE, arrivee, recul=d + RECUL_BASCULE, lieu=lieu)    # dégagement le long de l'axe
+    aller(robot, H_ATTENTE, lieu=lieu)                                   # redressement de la pince
+    position_attente(robot, lieu)
+    robot.WaitIdle(120)
+
+
+def tourner_haut(robot, angle):
+    """Le socle tient la couche du bas ; la pince tourne les 2 couches du haut de `angle` degrés."""
+    saisir(robot, H_COUCHES_HAUT)
+    aller(robot, H_COUCHES_HAUT, rotation=angle)
+    lacher_et_remonter(robot, rotation=angle)
+
+
+def tourner_cube_gauche(robot):
+    """Le cube entier tourne de 90° : la face avant part à gauche."""
+    tourner_cube(robot, -90)
+
+
+def tourner_cube_droite(robot):
+    """Le cube entier tourne de 90° : la face avant part à droite."""
+    tourner_cube(robot, +90)
+
+
+def basculer_gauche(robot):
+    """La face du dessus part à gauche."""
+    basculer(robot, -1)
+
+
+def basculer_droite(robot):
+    """La face du dessus part à droite."""
+    basculer(robot, +1)
+
+
+def basculer_avant(robot):
+    """La face du dessus vient vers le robot (3 prises)."""
+    tourner_cube_gauche(robot)
+    basculer_gauche(robot)
+    tourner_cube_droite(robot)
+
+
+def basculer_arriere(robot):
+    """La face du dessus part à l'opposé du robot (3 prises)."""
+    tourner_cube_gauche(robot)
+    basculer_droite(robot)
+    tourner_cube_droite(robot)
+
+
+def tourner_haut_gauche(robot):
+    """Les 2 couches du haut tournent de 90° vers la gauche."""
+    tourner_haut(robot, -90)
+
+
+def tourner_haut_droite(robot):
+    """Les 2 couches du haut tournent de 90° vers la droite."""
+    tourner_haut(robot, +90)
+
+
+# Présentation des 6 faces à la caméra, cube posé sur la table (la caméra est à droite).
+# Faces nommées selon leur position AVANT la séquence (vu depuis le robot).
+# Séquence la plus courte ; tests/test_mouvements.py vérifie qu'on voit bien les 6 faces.
+FACE_VUE_AU_DEPART = "droite"
+ETAPES_PHOTO = [                    # (mouvement fait sur la table, face alors tournée vers la caméra)
+    ("tourner_gauche", "arriere"),
+    ("tourner_gauche", "gauche"),
+    ("basculer_gauche", "dessous"),
+    ("tourner_gauche", "avant"),
+    ("tourner_gauche", "dessus"),
+]
+MOUVEMENTS_SUR_TABLE = {
+    "tourner_gauche": lambda robot: tourner_cube(robot, -90, TABLE),
+    "tourner_droite": lambda robot: tourner_cube(robot, +90, TABLE),
+    "basculer_gauche": lambda robot: basculer(robot, -1, TABLE),
+    "basculer_droite": lambda robot: basculer(robot, +1, TABLE),
+}
+
+
+def presenter_faces(robot):
+    """Pose le cube sur la table devant la caméra, photographie ses 6 faces, le remet dans le socle.
+
+    Le cube revient dans le socle dans une autre orientation qu'au départ.
+    Renvoie les faces dans l'ordre des photos.
+    """
+    transferer(robot, SOCLE, TABLE)
+    photographier(robot, FACE_VUE_AU_DEPART)
+    for mouvement, face in ETAPES_PHOTO:
+        MOUVEMENTS_SUR_TABLE[mouvement](robot)
+        photographier(robot, face)
+    transferer(robot, TABLE, SOCLE)
+    return [FACE_VUE_AU_DEPART] + [face for _, face in ETAPES_PHOTO]
+
+
+MOUVEMENTS = [
+    prendre_et_reposer,
+    tourner_cube_gauche, tourner_cube_droite,
+    basculer_gauche, basculer_droite,
+    basculer_avant, basculer_arriere,
+    tourner_haut_gauche, tourner_haut_droite,
+    presenter_faces,
+]
