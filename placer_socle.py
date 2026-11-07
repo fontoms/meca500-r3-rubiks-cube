@@ -8,7 +8,7 @@ Le robot amène la pince OUVERTE à l'endroit où le code attend le cube (SOCLE 
 meca500_rubiks/reglages.py), patins à hauteur du milieu du cube : à cette hauteur, tout l'outil
 est au-dessus du socle (5 mm au-dessus de ses coins les plus hauts), il ne peut pas le toucher.
 
-Tu regardes si les patins sont bien centrés sur les ouvertures avant / arrière de la poche.
+Tu regardes si les patins sont bien centrés sur les ouvertures gauche / droite de la poche.
 Sinon, tu décales le robot au clavier :
     x 5     → 5 mm plus loin du robot          x -5   → 5 mm plus près
     y 5     → 5 mm vers la gauche (vu du robot) y -5   → 5 mm vers la droite

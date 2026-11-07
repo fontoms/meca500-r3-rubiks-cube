@@ -119,7 +119,7 @@ class TestPresenterFaces(_Controles):
     def test_une_photo_par_face(self):
         robot = self.jouer()
         photos = [args[0] for nom, args in robot.commandes if nom == "prendre_photo"]
-        assert sorted(photos) == sorted(["dessus", "dessous", "avant", "arriere", "gauche", "droite"])
+        assert sorted(photos) == sorted(DIRECTION_FACE)
 
     def test_robot_immobile_avant_chaque_photo(self):
         noms = self.jouer().noms()
@@ -129,9 +129,9 @@ class TestPresenterFaces(_Controles):
 
 
 # Effet de chaque mouvement sur l'orientation du cube (quarts de tour autour de X / Y / Z)
-ROTATIONS = {"tourner_gauche": (2, -1), "tourner_droite": (2, 1), "basculer_gauche": (0, -1), "basculer_droite": (0, 1)}
-DIRECTION_FACE = {"dessus": (0, 0, 1), "dessous": (0, 0, -1), "avant": (-1, 0, 0),
-                  "arriere": (1, 0, 0), "gauche": (0, 1, 0), "droite": (0, -1, 0)}
+ROTATIONS = {"tourner_gauche": (2, 1), "tourner_droite": (2, -1), "basculer_droite": (0, 1), "basculer_gauche": (0, -1)}
+DIRECTION_FACE = {"dessus": (0, 0, 1), "dessous": (0, 0, -1), "vers_robot": (-1, 0, 0),
+                  "loin_du_robot": (1, 0, 0), "gauche": (0, 1, 0), "droite": (0, -1, 0)}
 
 
 def test_sequence_photo_montre_vraiment_chaque_face():
@@ -143,9 +143,30 @@ def test_sequence_photo_montre_vraiment_chaque_face():
     for mouvement, face in [(None, rubiks.FACE_VUE_AU_DEPART)] + rubiks.ETAPES_PHOTO:
         if mouvement is not None:
             orientation = mulm(rot_quart(*ROTATIONS[mouvement]), orientation)
+        if face is None:
+            continue
         assert mul(transp(orientation), vers_camera) == DIRECTION_FACE[face], (mouvement, face)
         vues.append(face)
     assert sorted(vues) == sorted(DIRECTION_FACE)
+
+
+@pytest.mark.parametrize("nom, attendu", [
+    ("tourner_cube_gauche", ((2, 1),)), ("tourner_cube_droite", ((2, -1),)),
+    ("basculer_droite", ((0, 1),)), ("basculer_gauche", ((0, -1),)),
+    ("basculer_avant", ((2, -1), (0, 1), (2, 1))), ("basculer_arriere", ((2, -1), (0, -1), (2, 1))),
+])
+def test_sens_des_mouvements_point_de_vue_du_robot(nom, attendu):
+    """Gauche = +Y, avant = +X (loin du robot) : vérifié sur la face du dessus / la face avant."""
+    from modele_cube import mul, mulm, rot_quart
+    o = rot_quart(0, 0)
+    for q in attendu:
+        o = mulm(rot_quart(*q), o)
+    dessus, loin = mul(o, (0, 0, 1)), mul(o, (1, 0, 0))
+    if nom.startswith("basculer"):
+        cible = {"avant": (1, 0, 0), "arriere": (-1, 0, 0), "gauche": (0, 1, 0), "droite": (0, -1, 0)}
+        assert dessus == cible[nom.split("_")[1]]
+    else:                                   # tourner à gauche : la face loin du robot part à gauche
+        assert loin == ((0, 1, 0) if nom.endswith("gauche") else (0, -1, 0))
 
 
 def test_presenter_faces_pose_le_cube_sur_la_table():

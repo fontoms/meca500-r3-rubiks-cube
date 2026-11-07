@@ -49,7 +49,8 @@ Main sur l'arrêt d'urgence, vitesses par défaut (lentes).
 1. **`python placer_socle.py`** : le robot amène la pince ouverte là où le code attend le cube,
    patins à mi-hauteur du cube. À cette hauteur tout l'outil est 5 mm au-dessus des coins du socle :
    il ne peut pas le toucher (si Z est juste).
-   - Les deux patins doivent être **centrés sur les ouvertures avant et arrière** de la poche.
+   - Les deux patins doivent être **centrés sur les ouvertures gauche et droite** de la poche
+     (vu depuis le robot), bout des doigts vers le robot.
    - Sinon, décale au clavier : `x 2` (2 mm plus loin du robot), `x -2`, `y 2` (vers la gauche),
      `y -2`… Quand c'est centré, tape `ok` : le script affiche la ligne `SOCLE = (...)` à recopier
      dans `reglages.py`. (`q` pour quitter sans rien changer.)

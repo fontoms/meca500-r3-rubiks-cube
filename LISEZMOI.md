@@ -4,11 +4,17 @@
 Rubiks_Meca500/
 ├── piloter_robot.py       ← PILOTE LE VRAI ROBOT (menu, ou un seul mouvement)
 ├── placer_socle.py        ← aide au montage du socle (GUIDE_MONTAGE.md)
+├── resoudre_cube.py       ← RÉSOUT LE CUBE avec le vrai robot à partir de son cubestring
+├── INTEGRATION_CAMERA.md  ← guide pour le groupe caméra (cubestring, photos, où brancher)
+├── installer_solveur.py   ← installe le solveur twophase et ses tables (une fois par ordinateur)
+├── solveur_tables/        ← tables du solveur (~80 Mo, ignoré par git)
 ├── meca500_rubiks/        ← LE CODE DU ROBOT (API mecademicpy)
 │   ├── reglages.py        ←   adresse IP, vitesses, géométrie (socle, cube, TCP, hauteurs)
 │   ├── poses.py              calcul des poses de la pince : pose(hauteur, inclinaison, rotation, recul, lieu)
 │   ├── briques.py            préparer, position d'attente, pince, aller, saisir, transférer, photographier…
 │   ├── mouvements.py         les mouvements du cube, une fonction chacun + liste MOUVEMENTS
+│   ├── resolution.py         cubestring → solution (twophase) → mouvements du robot
+│   ├── modele_cube.py        modèle logiciel du cube (orientation, coups, cubestring)
 │   └── robot_reel.py         connexion / déconnexion du vrai robot, menu
 ├── Rubiks_Meca500.rdk     ← la station RoboDK pour voir les mouvements en simulation
 ├── simulation/            ← fait tourner meca500_rubiks dans RoboDK
@@ -29,20 +35,64 @@ Rubiks_Meca500/
 ```
 
 ## Les mouvements : `meca500_rubiks/mouvements.py`
-Une fonction par mouvement. Gauche / droite / avant / arrière = vu depuis le robot, vers le cube.
+Une fonction par mouvement, **du point de vue du robot** : avant = loin du robot, arrière = vers le robot,
+gauche / droite = la gauche / la droite du robot ; tourner « à gauche » = sens anti-horaire vu de dessus.
+
+Position de départ : pince verticale, bout des doigts vers le robot, **J6 ≈ 0°** (câble de la pince dans
+sa position neutre). J6 reste entre −146° et +146° dans tous les mouvements (vérifié, voir plus bas).
 
 | Fonction | Ce que fait le robot |
 |---|---|
 | `verifier_outil` | **sans le cube** : pince ouverte, patins 10 mm au-dessus du haut du cube, pause 10 s (contrôle du TCP et du socle) |
 | `prendre_et_reposer` | saisit le cube, le soulève de 30 mm, le repose |
-| `tourner_cube_gauche` / `tourner_cube_droite` | le cube entier tourne de 90° : la face avant part à gauche / à droite |
-| `basculer_gauche` / `basculer_droite` | le cube bascule de 90° : la face du dessus part à gauche / à droite |
-| `basculer_avant` / `basculer_arriere` | la face du dessus vient vers le robot / part à l'opposé (3 prises) |
-| `tourner_haut_gauche` / `tourner_haut_droite` | le socle tient la couche du bas, les 2 couches du haut tournent de 90° |
+| `tourner_cube_gauche` / `tourner_cube_droite` | le cube entier tourne de 90° vers la gauche (anti-horaire vu de dessus) / vers la droite |
+| `basculer_gauche` / `basculer_droite` | le cube bascule de 90° : la face du dessus part à gauche / à droite du robot |
+| `basculer_avant` / `basculer_arriere` | la face du dessus part loin du robot / vient vers le robot (3 prises) |
+| `tourner_haut_gauche` / `tourner_haut_droite` | le socle tient la couche du bas, les 2 couches du haut tournent de 90° vers la gauche / la droite |
 | `presenter_faces` | pose le cube sur la table, présente ses 6 faces à la caméra, le remet dans le socle |
 
 Ils sont construits avec les briques de `briques.py`, et les positions sont calculées par
 `pose(hauteur, inclinaison, rotation, recul)` à partir des valeurs de `reglages.py`.
+
+## Résoudre le cube : `resoudre_cube.py`
+**Groupe caméra : voir [INTEGRATION_CAMERA.md](INTEGRATION_CAMERA.md)** (où brancher la caméra, format du
+cubestring, orientation de chaque photo). Consignes pour les assistants IA : [CLAUDE.md](CLAUDE.md).
+
+Première fois sur un ordinateur : **`python installer_solveur.py`**. Il installe la librairie
+`RubikTwoPhase` (solveur de Kociemba) et génère ses tables, ce qui prend une demi-heure ou plus.
+Si tu as déjà les tables (par exemple celles du groupe solveur) :
+`python installer_solveur.py --tables <dossier contenant co_classidx, phase1_prun…>`.
+Les tables vont dans `solveur_tables/`, qui n'est pas suivi par git.
+
+```
+python resoudre_cube.py <cubestring>               # calcule, affiche, demande Entrée, fait jouer le robot
+python resoudre_cube.py <cubestring> --sans-robot  # calcule et affiche seulement
+python resoudre_cube.py --exemple --sans-robot     # essai avec un cube mélangé d'exemple
+```
+
+**Le cubestring (contrat avec le groupe caméra)** : 54 lettres `U R F D L B`, format Kociemba (faces
+dans l'ordre U, R, F, D, L, B, 9 cases chacune ; la lettre d'une case = la face dont le centre a cette
+couleur). Il décrit le cube **tel qu'il est posé dans le socle** :
+U = dessus, D = dessous, **F = face tournée vers le robot**, B = face opposée au robot,
+R = face à droite du robot, L = face à gauche du robot.
+Cube résolu : `UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB`.
+
+Depuis le programme de la caméra (robot déjà connecté) :
+```python
+from meca500_rubiks import resolution
+resolution.resoudre(robot, cubestring)
+```
+
+**Comment le robot joue la solution** : il ne sait tourner que les 2 couches du haut (le socle tient
+celle du bas). Pour chaque coup, il amène la face à tourner en bas (bascules / rotations du cube),
+puis tourne les 2 couches du haut. Il suit l'orientation du cube d'un coup à l'autre au lieu de le
+remettre droit : 1 à 3 prises par quart de tour, environ 60 mouvements pour une solution de 20 coups.
+Le code du groupe solveur (`mapping.py`, `solver.py`) est conservé dans `archives/solveur_groupe/` :
+son enchaînement est juste, mais il remet le cube droit après chaque coup (6 à 12 prises par coup).
+
+Vérifié : `tests/test_resolution.py` (cubestring → solveur → mouvements → cube résolu, avec le modèle)
+et, dans RoboDK, `MODE = "resolution"` de `simulation/parametres.py`, qui utilise exactement le même
+code que le vrai robot.
 
 ## Piloter le vrai robot : `piloter_robot.py`
 ```
@@ -100,7 +150,7 @@ Le socle cache le bas des faces : la présentation se fait donc **sur la table, 
 3. le robot remet le cube dans le socle (dans une autre orientation qu'au départ).
 
 Ordre des photos (faces nommées selon leur position au départ, dans le socle) :
-droite, arrière, gauche, dessous, avant, dessus — `ETAPES_PHOTO` dans `mouvements.py`.
+droite, loin du robot, gauche, dessus, vers le robot, dessous — `ETAPES_PHOTO` dans `mouvements.py` (5 prises).
 Un test vérifie, avec le modèle du cube, que chaque photo montre bien la face annoncée.
 
 **Orientation sur la table** : pour que le robot atteigne la table avec la pince penchée (bascule),
@@ -134,6 +184,8 @@ de chaque ligne droite. Il vérifie :
 - que chaque point est **atteignable** ;
 - les **butées** articulaires (marge ≥ 10°) ;
 - la **singularité du poignet** (|J5| ≥ 10°) ;
+- le **câble de la pince** : J6 reste entre −180° et +180° (recommandation Mecademic), en partant du robot
+  juste après le homing ;
 - l'absence de **saut d'articulation** (changement de configuration en plein MoveLin).
 
 Bilan affiché dans RoboDK et écrit dans `journal/verification.txt`. Les collisions se vérifient à part :

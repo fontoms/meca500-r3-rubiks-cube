@@ -5,8 +5,9 @@ Banc d'essais RoboDK, sur les VRAIS mouvements de ../meca500_rubiks/ (pas de tra
   MODE "tests"      : rejoue les mouvements de P.TESTS en testant chaque déplacement
                       (collisions robot / pince / doigts / socle / table / cube, atteignabilité) ;
                       bilan dans journal/collisions.txt.
-  MODE "resolution" : résout un cube mélangé avec les mouvements du robot (bascules, rotations,
-                      couches), en vérifiant après chaque coup que le cube simulé suit le modèle.
+  MODE "resolution" : résout un cube mélangé exactement comme le vrai robot (resoudre_cube.py) :
+                      solveur twophase + plan de meca500_rubiks/resolution.py, en vérifiant après
+                      chaque mouvement que le cube simulé suit le modèle.
 """
 import os
 import random
@@ -16,10 +17,11 @@ from robodk import robolink
 
 import parametres as P                         # (ajoute le dossier du projet au chemin)
 import meca500_rubiks as rubiks                # noqa: E402
+from meca500_rubiks import resolution          # noqa: E402
 from connexion_robodk import RDK
 from construction import construire_pince, construire_socle_et_cube, obtenir_robot, pose_cubie
 from journalisation import log
-from modele_cube import ModeleCube, chemin_vers_bas, ecrire_coups, inverse, lire_coups, rot_quart
+from modele_cube import ModeleCube, ecrire_coups, inverse, lire_coups, rot_quart
 
 
 # ----------------------------- Préparation de la scène -----------------------------
@@ -78,19 +80,16 @@ def mode_tests():
 
 # ----------------------------- MODE "resolution" -----------------------------
 
-def jouer(robot, modele, face, k):
-    """Un coup de notation standard, joué avec les mouvements du robot (et appliqué au modèle)."""
-    for op, a in chemin_vers_bas(modele.centre(face)):
-        if op == "B":                                # bascule autour de X (axe robot → cube)
-            rubiks.basculer(robot, a)
-        else:                                        # rotation du cube entier autour de Z
-            rubiks.tourner_cube(robot, 90 * a)
-        modele.tourner(rot_quart(0 if op == "B" else 2, a))
-    # Face en bas : la tourner de k quarts (sens horaire vu de dessous) revient, à l'orientation
-    # près, à tourner les 2 couches du haut de -k quarts autour de +Z.
-    for q in ([-1, -1] if k == 2 else [-k]):
-        rubiks.tourner_haut(robot, 90 * q)
-        modele.tourner(rot_quart(2, q), lambda p: p[2] >= 0)
+def jouer(robot, modele, etape):
+    """Une étape du plan de resolution.py, jouée par le robot et appliquée au modèle du cube."""
+    nom, a = etape
+    resolution.MOUVEMENTS_ROBOT[nom](robot, a)
+    if nom == "basculer":
+        modele.tourner(rot_quart(0, a))
+    elif nom == "tourner_cube":
+        modele.tourner(rot_quart(2, a // 90))
+    else:                                            # tourner_haut : les 2 couches du haut
+        modele.tourner(rot_quart(2, a // 90), lambda p: p[2] >= 0)
 
 
 def ecart_simulation_modele(modele):
@@ -105,13 +104,14 @@ def ecart_simulation_modele(modele):
 
 
 def trouver_solution(modele, melange):
+    """Solution du cube mélangé : P.SOLUTION si renseignée, sinon le solveur twophase (comme sur le vrai
+    robot, à partir du cubestring du modèle), sinon l'inverse du mélange."""
     if P.SOLUTION.strip():
         return lire_coups(P.SOLUTION), "paramètre SOLUTION"
     try:
-        import kociemba
-        return lire_coups(kociemba.solve(modele.facelets())), "solveur kociemba"
-    except ImportError:
-        return inverse(melange), "inverse du mélange (kociemba non installé)"
+        return resolution.calculer_solution(modele.facelets()), "solveur twophase (cubestring du cube simulé)"
+    except resolution.ErreurResolution as e:
+        return inverse(melange), "inverse du mélange (%s)" % e
 
 
 def mode_resolution():
@@ -130,18 +130,16 @@ def mode_resolution():
 
     robot = simulateur.RobotSimule()
     RDK.setSimulationSpeed(P.VITESSE_SIMULATION)
-    attendu = modele.copie()
+    etapes = resolution.plan_robot(solution)
+    log("Mouvements du robot : %d" % len(etapes))
     try:
         rubiks.preparer(robot)
-        for i, (f, k) in enumerate(solution):
-            log("coup %d/%d : %s" % (i + 1, len(solution), ecrire_coups([(f, k)])))
-            jouer(robot, modele, f, k)
-            attendu.coup(f, k)
-            if not modele.egal(attendu):
-                raise RuntimeError("modèle incohérent après le coup %d" % (i + 1))
+        for i, etape in enumerate(etapes):
+            log("mouvement %d/%d : %s" % (i + 1, len(etapes), resolution.decrire(etape)))
+            jouer(robot, modele, etape)
             ecart = ecart_simulation_modele(modele)
             if ecart > 2.0:
-                raise RuntimeError("le cube simulé ne suit pas le modèle après le coup %d (écart %.1f mm)"
+                raise RuntimeError("le cube simulé ne suit pas le modèle après le mouvement %d (écart %.1f mm)"
                                    % (i + 1, ecart))
     finally:
         robot.fermer()

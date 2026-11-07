@@ -8,6 +8,8 @@ qui calcule la cinématique inverse tous les 1 mm / 1° le long de chaque MoveLi
   - ATTEIGNABLE   : chaque point du trajet a une solution de cinématique inverse ;
   - BUTÉES        : marge par rapport aux limites articulaires du Meca500 (≥ MARGE_BUTEE) ;
   - SINGULARITÉ   : |J5| reste loin de 0° (singularité du poignet, ≥ MARGE_POIGNET) ;
+  - CÂBLE         : J6 reste entre -180° et +180° (recommandation Mecademic pour le câble de la
+                    pince), en partant du robot juste après le homing (toutes articulations à 0°) ;
   - CONTINUITÉ    : pas de saut d'articulation entre deux points voisins (changement de
                     configuration ou passage près d'une singularité : le vrai robot refuserait
                     le MoveLin ou ferait un mouvement brusque).
@@ -31,6 +33,7 @@ from robodk.robomath import TxyzRxyz_2_Pose, pi, pose_2_quaternion, quaternion_2
 MARGE_BUTEE = 10.0       # ° minimum avant une butée articulaire
 MARGE_POIGNET = 10.0     # ° minimum pour |J5| (singularité du poignet à J5 = 0)
 SAUT_MAX = 5.0           # ° maximum de variation d'une articulation entre deux points voisins
+J6_MAX = 180.0           # ° : plage recommandée pour J6 avec le câble de la MEGP 25E
 PAS_MM, PAS_DEG = 1.0, 1.0
 
 
@@ -59,7 +62,8 @@ class RobotVerificateur:
         self.robot = RDK.Item("", ITEM_TYPE_ROBOT)
         bas, haut, _ = self.robot.JointLimits()
         self.bas, self.haut = bas.list()[:6], haut.list()[:6]
-        self.joints = self.robot.Joints().list()[:6]
+        self.joints = [0.0] * 6          # robot juste après le homing
+        self.j6_max = 0.0
         self.tcp = _pose(rubiks.TCP)     # bride → TCP (centre des patins des doigts)
         self.pose = None
         self.pires = {}                  # (étape, type) -> (valeur, message) : pire cas seulement
@@ -83,6 +87,9 @@ class RobotVerificateur:
             if marge < MARGE_BUTEE:
                 self._probleme("butée J%d" % (i + 1), marge, "J%d à %.0f° de sa butée" % (i + 1, marge))
         self.j5_min = min(self.j5_min, abs(j[4]))
+        self.j6_max = max(self.j6_max, abs(j[5]))
+        if abs(j[5]) > J6_MAX:
+            self._probleme("câble", -abs(j[5]), "J6 = %.0f° : hors de [-180°, 180°], le câble de la pince force" % j[5])
         if abs(j[4]) < MARGE_POIGNET:
             self._probleme("poignet", abs(j[4]), "poignet presque aligné (J5 = %.1f°) : singularité" % j[4])
         if precedent is not None:
@@ -164,8 +171,8 @@ def verifier_tout(afficher=True):
 
     afficher=False : pas de fenêtre RoboDK (utilisé par les tests pytest).
     """
-    lignes = ["Vérification cinématique (marges : butées ≥ %.0f°, |J5| ≥ %.0f°, saut ≤ %.0f°)"
-              % (MARGE_BUTEE, MARGE_POIGNET, SAUT_MAX), ""]
+    lignes = ["Vérification cinématique (marges : butées ≥ %.0f°, |J5| ≥ %.0f°, |J6| ≤ %.0f°, saut ≤ %.0f°)"
+              % (MARGE_BUTEE, MARGE_POIGNET, J6_MAX, SAUT_MAX), ""]
     tout_ok = True
     resultats = {}
     for mouvement in rubiks.MOUVEMENTS:
@@ -173,9 +180,9 @@ def verifier_tout(afficher=True):
         ok = not v.problemes
         resultats[mouvement.__name__] = v.problemes
         tout_ok &= ok
-        lignes.append("%-22s %s   (%d points ; butée la plus proche : %.0f° sur %s ; |J5| min %.0f° ; saut max %.1f°)"
-                      % (mouvement.__name__, "OK " if ok else "PROBLÈME", v.nb_points,
-                         v.marge_butee[0], v.marge_butee[1], v.j5_min, v.saut_max))
+        lignes.append("%-22s %s   (%d points ; butée la plus proche : %.0f° sur %s ; |J5| min %.0f° ; |J6| max %.0f° ;"
+                      " saut max %.1f°)" % (mouvement.__name__, "OK " if ok else "PROBLÈME", v.nb_points,
+                                            v.marge_butee[0], v.marge_butee[1], v.j5_min, v.j6_max, v.saut_max))
         lignes += ["      - " + p for p in v.problemes]
     lignes += ["", "TOUS LES MOUVEMENTS SONT VALIDES" if tout_ok else "ATTENTION : au moins un mouvement pose problème"]
     texte = "\n".join(lignes)

@@ -27,11 +27,13 @@ TCP = (3.1, 0.0, 93.2, 0.0, 0.0, 0.0)
 H_CUBE = COTE_CUBE / 2       # TCP au centre du cube posé : patins de 23,5 à 33,5 mm (couche du milieu)
 H_COUCHES_HAUT = 34.5        # patins de 29,5 à 39,5 mm : couches du milieu et du haut, pas celle du bas
 LEVEE = 30.0                 # on soulève le cube de 30 mm pour le sortir du socle
-H_ATTENTE = 109.5            # position d'attente : bas des patins 47,5 mm au-dessus du cube
+H_ATTENTE = 77.0             # position haute / d'attente : bas des patins 15 mm au-dessus du cube
 
 # Bascule : la pince prend le cube penchée à 45°, le tourne de 90°, le repose penchée de l'autre côté.
 # (Pince couchée à 90° : hors de portée du robot et collision avec les mors du socle.)
 INCLINAISON = 45.0           # °
+ROTATION_BASCULE = 90.0      # ° : pendant la bascule, la pince tourne pour serrer les faces avant / arrière
+#                              (J6 ≈ -90°, le câble reste dans sa plage)
 DECALAGE_BASCULE = 10.0      # cube tenu 10 mm plus bas dans les patins (couches du milieu et du haut) :
 #                              sinon les bras des doigts touchent les coins du haut en penchant à 45°
 RECUL_BASCULE = 40.0         # approche / dégagement le long de l'axe de la pince penchée
