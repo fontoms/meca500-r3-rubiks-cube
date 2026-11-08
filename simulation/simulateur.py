@@ -201,6 +201,12 @@ class RobotSimule:
         if not self.verifier_collisions:
             self._attendre(secondes)
 
+    capteur_pince = True        # comme le vrai robot (firmware ≥ 9.1) : briques.attendre_pince
+
+    def WaitGripperMoveCompletion(self, timeout=None):
+        from meca500_rubiks.duree import DUREE_PINCE_CAPTEUR
+        self.Delay(DUREE_PINCE_CAPTEUR)
+
     # ---------------- pince ----------------
     def _placer_doigts(self, serrage):
         for doigt, numero in self.doigts:
@@ -272,7 +278,7 @@ class RobotSimule:
         pass
 
     Connect = ActivateAndHome = WaitHomed = WaitIdle = DeactivateRobot = Disconnect = _rien
-    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = _rien
+    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = SetCartAcc = SetJointAcc = SetGripperVel = _rien
 
     def SetTrf(self, *p):
         self.trf = p

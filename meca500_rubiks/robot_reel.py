@@ -12,6 +12,10 @@ def connecter(adresse_ip=ADRESSE_IP):
     robot.Connect(address=adresse_ip)
     robot.ActivateAndHome()
     robot.WaitHomed()
+    # Firmware ≥ 9.1 : la pince dit quand elle a fini (briques.attendre_pince). Sinon : pause fixe.
+    robot.capteur_pince = bool(robot.GetRobotInfo().gripper_pos_ctrl_capable)
+    if not robot.capteur_pince:
+        print("Firmware sans retour de position de la pince : pause fixe de DUREE_PINCE après chaque prise.")
     preparer(robot)
     return robot
 
@@ -42,3 +46,4 @@ def menu(robot):
         mouvement = MOUVEMENTS[int(choix) - 1]
         print("->", mouvement.__name__)
         mouvement(robot)
+        robot.WaitIdle(120)                # les commandes sont en file : attendre la fin du mouvement

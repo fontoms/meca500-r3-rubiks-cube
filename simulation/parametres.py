@@ -124,6 +124,7 @@ VITESSE_LIN = R.VITESSE_LINEAIRE              # mm/s
 VITESSE_ART = R.VITESSE_ANGULAIRE             # °/s (RoboDK : une seule vitesse pour toutes les articulations)
 # Accélérations : celles de RoboDK par défaut sont très faibles ; sur des déplacements de 40 mm le robot
 # simulé passait son temps à accélérer, et changer les vitesses de reglages.py ne changeait presque rien.
-# Ordre de grandeur pour le Meca500 (accélérations par défaut de Mecademic, non mesurées) :
-ACCEL_LIN = 2000.0                            # mm/s²
-ACCEL_ART = 2000.0                            # °/s²
+# Mêmes accélérations que l'estimation de durée (meca500_rubiks/duree.py, calée sur le vrai robot) :
+from meca500_rubiks import duree as _duree    # noqa: E402
+ACCEL_LIN = _duree.ACCELERATION_LIN_100 * R.ACCELERATION_CARTESIENNE / 100     # mm/s²
+ACCEL_ART = _duree.ACCELERATION_ART_100 * R.ACCELERATION_ARTICULAIRE / 100     # °/s²

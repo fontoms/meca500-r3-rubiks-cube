@@ -135,19 +135,41 @@ def _variantes():
 VARIANTES = _variantes()
 
 
-def _jouer_variante(etape):
+# Liaisons rapides (resolution.executer) : deux prises de suite (tourner_cube, tourner_haut, basculer) sans
+# que la pince remonte entre les deux. Chaque paire possible est testée.
+def _liaisons():
     from meca500_rubiks import resolution as res
+    return [(a, b) for a in VARIANTES for b in VARIANTES if b[2] == res.rotation_pince_apres(a)]
+
+
+LIAISONS = _liaisons()
+
+
+def _jouer_variante(*etapes):
+    """Pince tournée en l'air jusqu'à la première prise, étapes jouées comme par la résolution, retour à 0°."""
+    from meca500_rubiks import resolution as res
+    plan = list(etapes)
+    if plan[0][2] != 0.0:
+        plan.insert(0, ("tourner_pince", plan[0][2], 0.0))
+    fin = res.rotation_pince_apres(plan[-1])
+    if fin != 0.0:
+        plan.append(("tourner_pince", 0.0, fin))
 
     def mouvement(robot):
-        nom, arg, prise = etape
-        rubiks.tourner_pince(robot, prise, 0.0)
-        res.MOUVEMENTS_ROBOT[nom](robot, arg, prise)
-        rubiks.tourner_pince(robot, 0.0, res.rotation_pince_apres(etape))
-    mouvement.__name__ = "%s_%+d_pince_%+d" % (etape[0], etape[1], etape[2])
+        res.executer(robot, plan, afficher=lambda *a: None)
+    mouvement.__name__ = "_puis_".join("%s_%+d_pince_%+d" % e for e in etapes)
     return mouvement
 
 
-@pytest.mark.parametrize("etape", VARIANTES, ids=lambda e: "%s%+d@%+d" % (e[0], e[1], e[2]))
+def _nom(e):
+    return "%s%+d@%+d" % (e[0], e[1], e[2])
+
+
+def _nom_liaison(paire):
+    return " puis ".join(map(_nom, paire))
+
+
+@pytest.mark.parametrize("etape", VARIANTES, ids=_nom)
 def test_variante_finit_pince_ouverte_en_attente(etape):
     robot = FauxRobot()
     _jouer_variante(etape)(robot)
@@ -155,8 +177,28 @@ def test_variante_finit_pince_ouverte_en_attente(etape):
     assert [n for n in robot.noms() if n.startswith("Gripper")][-1] == "GripperOpen"
 
 
+def test_il_y_a_des_liaisons_rapides():
+    assert len(LIAISONS) >= 10
+
+
+@pytest.mark.parametrize("paire", LIAISONS, ids=_nom_liaison)
+def test_liaison_sans_remonter(paire):
+    """Entre les deux prises, la pince ne remonte pas : elle va directement à la hauteur de la 2e prise."""
+    robot = FauxRobot()
+    _jouer_variante(*paire)(robot)
+    noms = robot.noms()
+    premiere_fermeture = noms.index("GripperClose")
+    lacher = noms.index("GripperOpen", premiere_fermeture)                 # la pince lâche le cube
+    suivant = next(args for n, args in robot.commandes[lacher:] if n in ("MoveLin", "MovePose"))
+    assert suivant[2] < rubiks.SOCLE[2] + rubiks.H_ATTENTE - 1, "la pince est remontée entre les deux prises"
+    entre = noms[lacher:noms.index("GripperClose", lacher)]
+    assert entre.count("MoveLin") + entre.count("MovePose") <= 1, "un seul déplacement jusqu'à la prise suivante"
+    assert noms[lacher:].count("GripperClose") == 1                      # puis elle reprend le cube
+    assert robot.poses()[-1] == ATTENTE
+
+
 @pytest.mark.robodk
-@pytest.mark.parametrize("etape", VARIANTES, ids=lambda e: "%s%+d@%+d" % (e[0], e[1], e[2]))
+@pytest.mark.parametrize("etape", VARIANTES, ids=_nom)
 def test_variante_cinematique_robodk(etape):
     import verifier
     v = verifier.verifier_mouvement(_jouer_variante(etape))
@@ -164,7 +206,28 @@ def test_variante_cinematique_robodk(etape):
 
 
 @pytest.mark.robodk
-@pytest.mark.parametrize("etape", VARIANTES, ids=lambda e: "%s%+d@%+d" % (e[0], e[1], e[2]))
+@pytest.mark.parametrize("paire", LIAISONS, ids=_nom_liaison)
+def test_liaison_cinematique_robodk(paire):
+    import verifier
+    v = verifier.verifier_mouvement(_jouer_variante(*paire))
+    assert not v.problemes, "\n".join(v.problemes)
+
+
+@pytest.mark.robodk
+@pytest.mark.parametrize("paire", LIAISONS, ids=_nom_liaison)
+def test_liaison_collisions_robodk(paire):
+    import banc_essais
+    import simulateur
+    banc_essais.preparer_scene([])
+    try:
+        problemes = simulateur.tester_collisions(_jouer_variante(*paire))
+    finally:
+        banc_essais.preparer_scene([])
+    assert not problemes, "\n".join("%s : %s" % (e, ", ".join(o)) for e, o in problemes)
+
+
+@pytest.mark.robodk
+@pytest.mark.parametrize("etape", VARIANTES, ids=_nom)
 def test_variante_collisions_robodk(etape):
     import banc_essais
     import simulateur

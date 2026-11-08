@@ -9,11 +9,25 @@ ADRESSE_IP = "192.168.0.100"
 
 # Vitesses. Limites du Meca500 R3 : SetCartLinVel ≤ 5000 mm/s (défaut 150), SetCartAngVel ≤ 1000 °/s
 # (défaut 45), SetJointVel ≤ 100 % (défaut 25 %) ; articulations J1…J6 : 150, 150, 180, 300, 300, 500 °/s.
-# On reste loin des maximums : le cube, tenu par frottement, ne doit pas glisser dans la pince.
-# Premiers essais (cube résolu du premier coup) : 20 mm/s, 30 °/s, 10 %. À valider sur le vrai robot.
-VITESSE_LINEAIRE = 200.0     # mm/s
-VITESSE_ANGULAIRE = 180.0    # °/s
-VITESSE_ARTICULAIRE = 50.0   # %
+# Historique : 20 mm/s, 30 °/s, 10 % (premiers essais) ; 5000 mm/s, 1000 °/s, 100 % le 7/11/2026 :
+# cube résolu en 2 min 17 s (61 étapes), sans glissement.
+VITESSE_LINEAIRE = 5000.0    # mm/s
+VITESSE_ANGULAIRE = 1000.0   # °/s
+VITESSE_ARTICULAIRE = 100.0  # %
+
+# Accélérations (% du maximum) : sur nos petits trajets (30 à 80 mm, 90°), le robot n'atteint presque
+# jamais la vitesse réglée ci-dessus ; c'est l'ACCÉLÉRATION qui fixe la durée des déplacements.
+# Valeurs par défaut du Meca500 : SetCartAcc 50 %, SetJointAcc 80 %. Monter par paliers (100, 150…)
+# en surveillant que le cube ne glisse pas dans la pince (voir la doc Mecademic pour le maximum).
+ACCELERATION_CARTESIENNE = 100.0   # %   (MoveLin)
+ACCELERATION_ARTICULAIRE = 100.0   # %   (MovePose)
+
+# Pince. Vitesse des doigts : 40 % par défaut sur le Meca500.
+VITESSE_PINCE = 100.0        # %
+# Le robot repart dès que la pince a fini de s'ouvrir ou de se fermer (WaitGripperMoveCompletion :
+# fin de course ou cube tenu ; firmware ≥ 9.1, vérifié à la connexion). Si ATTENDRE_FIN_PINCE = False,
+# ou firmware trop ancien : pause fixe de DUREE_PINCE après chaque ouverture / fermeture.
+ATTENDRE_FIN_PINCE = True
 DUREE_PINCE = 0.5            # s
 
 # Rotations de la pince (autour de la verticale, poses.pose) où elle peut saisir le cube. Le socle est

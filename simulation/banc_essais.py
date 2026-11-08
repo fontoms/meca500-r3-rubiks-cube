@@ -92,13 +92,6 @@ def appliquer(modele, etape):
     # tourner_pince : pince ouverte, en l'air, le cube ne bouge pas
 
 
-def jouer(robot, modele, etape):
-    """Une étape du plan de resolution.py, jouée par le robot et appliquée au modèle du cube."""
-    nom, a, prise = etape
-    resolution.MOUVEMENTS_ROBOT[nom](robot, a, prise)
-    appliquer(modele, etape)
-
-
 def ecart_simulation_modele(modele):
     """Écart maximal (mm) entre la position des cubies dans RoboDK et le modèle."""
     pire = 0.0
@@ -147,19 +140,20 @@ def resoudre_en_simulation(melange, coups=None, etapes=None, collisions=False, a
     afficher("Solution (%d coups) : %s" % (len(coups), ecrire_coups(coups)))
     duree = resolution.duree_plan(etapes)
     afficher("Robot : %d prises, %d étapes, durée estimée %.0f s (%d min %02d s)"
-             % (resolution.nombre_de_prises(etapes), len(etapes), duree, duree // 60, duree % 60))
+             % (resolution.nombre_de_prises(etapes), len(etapes), duree, round(duree) // 60, round(duree) % 60))
 
     robot = simulateur.RobotSimule(collisions=collisions)
     RDK.setSimulationSpeed(P.VITESSE_SIMULATION)
     try:
         rubiks.preparer(robot)
-        for i, etape in enumerate(etapes):
-            afficher("  %2d/%d  %s" % (i + 1, len(etapes), resolution.decrire(etape)))
-            jouer(robot, modele, etape)
+
+        def verifier_cube(i, etape):
+            appliquer(modele, etape)
             ecart = ecart_simulation_modele(modele)
             if ecart > 2.0:
                 raise RuntimeError("le cube simulé ne suit pas le modèle après le mouvement %d (écart %.1f mm)"
-                                   % (i + 1, ecart))
+                                   % (i, ecart))
+        resolution.executer(robot, etapes, afficher, verifier_cube)    # exactement comme le vrai robot
     finally:
         robot.fermer()
     resolu = modele.resolu()

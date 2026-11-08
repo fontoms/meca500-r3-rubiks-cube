@@ -125,6 +125,29 @@ def test_plan_optimise_plus_rapide_que_le_plan_simple(graine):
     assert res.duree_plan(optimise) <= res.duree_plan(simple)
 
 
+@pytest.mark.parametrize("graine", range(3))
+def test_duree_plan_egale_le_chronometre_de_l_execution(graine):
+    """L'estimation du planificateur (liaisons rapides comprises) = ce que joue vraiment executer."""
+    from meca500_rubiks.duree import Chronometre
+    etapes = res.plan_robot(coups_au_hasard(500 + graine))
+    robot = Chronometre()
+    rubiks.preparer(robot)
+    robot.temps = 0.0
+    res.executer(robot, etapes, afficher=lambda *a: None)
+    assert robot.temps == pytest.approx(res.duree_plan(etapes))
+    assert robot.pose == rubiks.pose(rubiks.H_ATTENTE)                   # fin : position d'attente, pince à 0°
+
+
+def test_le_planificateur_utilise_les_liaisons_rapides():
+    """Sur une vraie solution, au moins un enchaînement tourner_haut / tourner_cube sans remonter."""
+    vertical = ("tourner_cube", "tourner_haut")
+    n = 0
+    for graine in range(5):
+        etapes = res.plan_robot(coups_au_hasard(600 + graine))
+        n += sum(1 for a, b in zip(etapes, etapes[1:]) if a[0] in vertical and b[0] in vertical)
+    assert n > 0
+
+
 def test_coups_opposes_joues_dans_le_meilleur_ordre():
     """U puis D : on commence par D, déjà en bas (U demande 2 bascules)."""
     plan = res.plan_robot([("U", 1), ("D", 1)])

@@ -150,11 +150,12 @@ class RobotVerificateur:
         pass
 
     Connect = ActivateAndHome = WaitHomed = WaitIdle = DeactivateRobot = Disconnect = _rien
-    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = _rien
+    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = SetCartAcc = SetJointAcc = SetGripperVel = _rien
 
     def SetTrf(self, *p):
         self.tcp = _pose(p)
-    GripperOpen = GripperClose = Delay = prendre_photo = _rien
+    GripperOpen = GripperClose = Delay = WaitGripperMoveCompletion = prendre_photo = _rien
+    capteur_pince = True
 
 
 def verifier_mouvement(mouvement):

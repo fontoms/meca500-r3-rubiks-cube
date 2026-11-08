@@ -38,6 +38,7 @@ EXEMPLE = "DUUBULDBFRBFRRULLLBRDFFFBLURDBFDFDRFRULBLUFDURRBLBDUDL"
 
 
 def minutes(secondes):
+    secondes = round(secondes)
     return "%d min %02d s" % (secondes // 60, secondes % 60)
 
 

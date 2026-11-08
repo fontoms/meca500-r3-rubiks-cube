@@ -11,8 +11,13 @@ documentation en **français**, destinés à des étudiants.
   - `poses.py` : `pose(hauteur, inclinaison, rotation, recul, lieu)` → (x, y, z, α, β, γ), Euler XYZ mobiles.
   - `briques.py` / `mouvements.py` : mouvements du cube ; liste `MOUVEMENTS` (menu, tests, programmes RoboDK).
   - `resolution.py` : cubestring → solveur twophase (24 orientations, `meilleure_solution`) → `plan_robot`
-    (Dijkstra sur orientation du cube × rotation de pince, coût = `duree.py`) → exécution.
+    (Dijkstra sur orientation du cube × rotation de pince × pince restée en bas, coût = `duree.py`) →
+    `executer` (liaisons rapides, `briques.py` LIAISONS : après chaque prise la pince reste ouverte autour
+    du cube, la prise suivante part de là ; on ne remonte que pour tourner la pince en l'air). Toujours
+    passer par `executer`.
     Étapes = triplets `(nom, arg, prise)` ; la pince reste dans `ROTATIONS_PINCE` (-90/0/+90°).
+  - Vitesse : le temps vient surtout de la pince (`attendre_pince`) et des ACCÉLÉRATIONS (trajets courts),
+    pas des vitesses max. Pas de `WaitIdle` dans les mouvements, pas de lissage (`SetBlending(0)`).
   - `modele_cube.py` : modèle pur Python du cube (orientation, coups, cubestring Kociemba).
 - `simulation/` : RoboDK. `simulateur.RobotSimule` imite `mecademicpy` et joue **le même code** que le vrai
   robot ; `verifier.py` vérifie la cinématique, `simulateur.tester_collisions` les collisions (vrais modèles 3D).

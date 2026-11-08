@@ -6,12 +6,16 @@ Deux sortes de fonctions :
   - les mouvements de base tourner_cube, tourner_haut, basculer, utilisés par la résolution. Ils partent
     de la position d'attente, pince ouverte DÉJÀ TOURNÉE de `prise` (une des ROTATIONS_PINCE), et y
     reviennent avec la rotation où la pince a lâché le cube (prise + angle). Le planificateur de
-    resolution.py enchaîne ainsi les mouvements sans remettre la pince à 0° à chaque fois ;
+    resolution.py enchaîne ainsi les mouvements sans remettre la pince à 0° à chaque fois.
+    Liaisons rapides (voir briques, LIAISONS) : tourner_cube, tourner_haut et basculer acceptent
+    depuis = (hauteur, inclinaison, recul) où la pince vient de lâcher le cube sans remonter, et
+    remonter=False (la pince reste ouverte autour du cube ; pose_lacher dit où) ;
   - les mouvements du menu (tourner_cube_gauche, basculer_droite…, liste MOUVEMENTS) : partent de la
     position d'attente pince à 0° et y reviennent. Les tests et les programmes RoboDK les utilisent.
 tourner_cube et basculer peuvent aussi travailler sur la table (lieu=TABLE), pour presenter_faces.
 """
 from .briques import (aller, aller_en_tournant, fermer_pince, lacher_et_remonter, ouvrir_pince, photographier,
+                      remonter as remonter_pince, verifier_liaison,
                       position_attente, saisir, tourner_pince, transferer)
 from .reglages import (SOCLE, TABLE, COTE_CUBE, DECALAGE_BASCULE, H_COUCHES_HAUT, H_CUBE, H_ATTENTE, INCLINAISON,
                        LEVEE, RECUL_BASCULE, ROTATION_BASCULE, ROTATIONS_PINCE)
@@ -33,53 +37,72 @@ def prendre_et_reposer(robot):
     lacher_et_remonter(robot)
 
 
-def tourner_cube(robot, angle, lieu=SOCLE, prise=0.0):
+def tourner_cube(robot, angle, lieu=SOCLE, prise=0.0, depuis=None, remonter=True):
     """Soulève le cube, le tourne de `angle` degrés (±90 ou ±180) autour de la verticale, le repose.
-    La pince saisit le cube tournée de `prise` et le lâche tournée de prise + angle."""
+    La pince saisit le cube tournée de `prise` et le lâche tournée de prise + angle, à la hauteur H_CUBE.
+    depuis, remonter : voir saisir et lacher_et_remonter (liaisons rapides de la résolution)."""
     fin = prise + angle
     _verifier_rotations(prise, fin)
-    saisir(robot, H_CUBE, lieu, prise)
+    saisir(robot, H_CUBE, lieu, prise, depuis)
     aller(robot, H_CUBE + LEVEE, rotation=prise, lieu=lieu)
     aller_en_tournant(robot, H_CUBE + LEVEE, prise, fin, lieu)
     aller(robot, H_CUBE, rotation=fin, lieu=lieu)
-    lacher_et_remonter(robot, rotation=fin, lieu=lieu)
+    lacher_et_remonter(robot, rotation=fin, lieu=lieu, remonter=remonter)
 
 
-def tourner_haut(robot, angle, prise=0.0):
+def tourner_haut(robot, angle, prise=0.0, depuis=None, remonter=True):
     """Le socle tient la couche du bas ; la pince tourne les 2 couches du haut de `angle` degrés
-    (±90, ou ±180 en une seule prise : de +90° à -90° ou l'inverse)."""
+    (±90, ou ±180 en une seule prise : de +90° à -90° ou l'inverse). Elle lâche le cube à H_COUCHES_HAUT.
+    depuis, remonter : voir saisir et lacher_et_remonter (liaisons rapides de la résolution)."""
     fin = prise + angle
     _verifier_rotations(prise, fin)
-    saisir(robot, H_COUCHES_HAUT, rotation=prise)
+    saisir(robot, H_COUCHES_HAUT, rotation=prise, depuis=depuis)
     aller_en_tournant(robot, H_COUCHES_HAUT, prise, fin)
-    lacher_et_remonter(robot, rotation=fin)
+    lacher_et_remonter(robot, rotation=fin, remonter=remonter)
 
 
-def basculer(robot, sens, lieu=SOCLE, prise=ROTATION_BASCULE):
+def pose_lacher(nom, arg):
+    """(hauteur, inclinaison, recul) où la pince lâche le cube à la fin du mouvement `nom` (et reste, si
+    remonter=False). Voir briques, LIAISONS."""
+    if nom == "tourner_cube":
+        return (H_CUBE, 0.0, 0.0)
+    if nom == "tourner_haut":
+        return (H_COUCHES_HAUT, 0.0, 0.0)
+    if nom == "basculer":
+        return (H_CUBE, INCLINAISON * arg, DECALAGE_BASCULE)
+    raise ValueError(nom)
+
+
+def basculer(robot, sens, lieu=SOCLE, prise=ROTATION_BASCULE, depuis=None, remonter=True):
     """Bascule le cube de 90° : sens = +1 le dessus part à droite du robot, -1 à gauche.
 
     La pince, tournée de `prise` = ±ROTATION_BASCULE (mâchoires sur les faces avant / arrière), prend
     le cube penchée d'un côté (-45°) et le repose penchée de l'autre (+45°) : le cube a tourné de 90°
     sans que la pince se couche. (Pencher vers l'avant / l'arrière met le robot en butée.)
     La pince finit en position d'attente, toujours tournée de `prise`.
+    depuis = (hauteur, inclinaison, recul) où la pince vient de lâcher le cube : elle penche directement
+    vers la prise, ses doigts glissent le long des faces avant / arrière (voir briques, LIAISONS).
+    remonter=False : la pince reste penchée, ouverte autour du cube (pose_lacher).
     """
     if abs(prise) != ROTATION_BASCULE:
         raise ValueError("basculer : la pince doit être tournée de ±%s° (prise = %s)" % (ROTATION_BASCULE, prise))
     depart, arrivee = -INCLINAISON * sens, INCLINAISON * sens
     d, r = DECALAGE_BASCULE, prise
 
-    position_attente(robot, lieu, r)                                             # déjà tournée au-dessus du cube
-    robot.GripperOpen()                                                          # (déjà ouverte : sans attendre)
-    aller(robot, H_CUBE, depart, r, recul=d + RECUL_BASCULE, lieu=lieu)          # approche, pince penchée
-    aller(robot, H_CUBE, depart, r, recul=d, lieu=lieu)                          # descente le long de son axe
+    if depuis is None:
+        position_attente(robot, lieu, r)                                         # déjà tournée au-dessus du cube
+        robot.GripperOpen()                                                      # (déjà ouverte : sans attendre)
+        aller(robot, H_CUBE, depart, r, recul=d + RECUL_BASCULE, lieu=lieu)      # approche, pince penchée
+    else:
+        verifier_liaison(depuis, r, depart)                                      # doigts déjà autour du cube
+    aller(robot, H_CUBE, depart, r, recul=d, lieu=lieu)                          # prise (descente le long de l'axe)
     fermer_pince(robot)
     aller(robot, H_CUBE + LEVEE, depart, r, recul=d, lieu=lieu)                  # soulève le cube
     aller(robot, H_CUBE + LEVEE, arrivee, r, recul=d, lieu=lieu)                 # bascule de 90° autour du centre du cube
     aller(robot, H_CUBE, arrivee, r, recul=d, lieu=lieu)                         # repose le cube
     ouvrir_pince(robot)
-    aller(robot, H_CUBE, arrivee, r, recul=d + RECUL_BASCULE, lieu=lieu)         # dégagement le long de l'axe
-    aller(robot, H_ATTENTE, rotation=r, lieu=lieu)                               # redressement de la pince
-    robot.WaitIdle(120)
+    if remonter:                                    # dégagement le long de l'axe, redressement de la pince
+        remonter_pince(robot, pose_lacher("basculer", sens), r, lieu)
 
 
 # ----------------------------- Mouvements du menu (pince à 0° au départ et à la fin) -----------------------------

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Pilote le VRAI Meca500 (mecademicpy). Pour la siOulamulation, utilise RoboDK.
+Pilote le VRAI Meca500 (mecademicpy). Pour la simulation, utilise RoboDK.
 
     python piloter_robot.py                     → menu des mouvements
     python piloter_robot.py basculer_droite     → un seul mouvement, puis déconnexion

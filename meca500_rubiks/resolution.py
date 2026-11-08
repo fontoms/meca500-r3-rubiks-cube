@@ -25,11 +25,12 @@ import os
 import re
 import time
 
-from .briques import position_attente, preparer, tourner_pince
+from .briques import preparer, remonter, tourner_pince
 from .duree import Chronometre
 from .modele_cube import DIR_FACE, FACE_DIR, chemin_vers_bas, cross, mul, mulm, rot_quart, transp
-from .mouvements import ETAPES_PHOTO, basculer, tourner_cube, tourner_haut
-from .reglages import ROTATION_BASCULE, ROTATIONS_PINCE
+from .mouvements import ETAPES_PHOTO, basculer, pose_lacher, tourner_cube, tourner_haut
+from .poses import pose
+from .reglages import H_ATTENTE, ROTATION_BASCULE, ROTATIONS_PINCE
 
 DOSSIER_PROJET = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOSSIER_TABLES = os.path.join(DOSSIER_PROJET, "solveur_tables")   # contient twophase/ (les tables)
@@ -225,21 +226,39 @@ def vue_camera(orientation):
 #   ("basculer", sens, prise)        bascule (±1, autour de X), pince tournée de prise = ±90°
 #   ("tourner_pince", vers, depuis)  pince ouverte, en l'air : tourne de `depuis` à `vers`
 # prise = rotation de la pince quand elle saisit le cube ; elle le lâche tournée de prise + angle.
+#
+# LIAISONS (voir briques.py) : après chaque prise, la pince lâche le cube et RESTE EN BAS, ouverte autour
+# de lui (`bas` = (hauteur, inclinaison, recul) de la pince, voir mouvements.pose_lacher). La prise suivante
+# part directement de là : autre hauteur (tourner_cube / tourner_haut) ou pince penchée (basculer), sans
+# remonter à la position d'attente. On ne remonte que pour tourner la pince en l'air, et à la fin.
+# Chaque fonction ci-dessous joue une étape en partant de `bas` (None = position d'attente) et renvoie
+# le nouveau `bas`.
 
-def _tourner_pince(robot, vers, depuis):
+def _tourner_pince(robot, vers, depuis, bas=None):
+    remonter(robot, bas, depuis)
     tourner_pince(robot, vers, depuis)
+    return None
 
 
-def _tourner_cube(robot, angle, prise):
-    tourner_cube(robot, angle, prise=prise)
+def _tourner_cube(robot, angle, prise, bas=None):
+    tourner_cube(robot, angle, prise=prise, depuis=bas, remonter=False)
+    return pose_lacher("tourner_cube", angle)
 
 
-def _tourner_haut(robot, angle, prise):
-    tourner_haut(robot, angle, prise=prise)
+def _tourner_haut(robot, angle, prise, bas=None):
+    tourner_haut(robot, angle, prise=prise, depuis=bas, remonter=False)
+    return pose_lacher("tourner_haut", angle)
 
 
-def _basculer(robot, sens, prise):
-    basculer(robot, sens, prise=prise)
+def _basculer(robot, sens, prise, bas=None):
+    basculer(robot, sens, prise=prise, depuis=bas, remonter=False)
+    return pose_lacher("basculer", sens)
+
+
+def bas_apres(etape):
+    """Où reste la pince (ouverte, en bas) après l'étape jouée par executer ; None : position d'attente."""
+    nom, arg, _ = etape
+    return None if nom == "tourner_pince" else pose_lacher(nom, arg)
 
 
 MOUVEMENTS_ROBOT = {"tourner_pince": _tourner_pince, "tourner_cube": _tourner_cube,
@@ -254,20 +273,48 @@ def rotation_pince_apres(etape):
     return prise if nom == "basculer" else prise + arg
 
 
-@functools.lru_cache(maxsize=None)
-def duree_etape(etape):
-    """Durée estimée (s) d'une étape, pince partant de la position d'attente (duree.Chronometre)."""
-    nom, arg, prise = etape
+def _chronometre(bas, rotation):
+    """Chronomètre préparé, pince ouverte à la hauteur `bas` (None = position d'attente), temps à 0."""
     robot = Chronometre()
     preparer(robot)
-    position_attente(robot, rotation=prise)       # pour tourner_pince, prise = rotation de départ
+    hauteur, inclinaison, recul = (H_ATTENTE, 0.0, 0.0) if bas is None else bas
+    robot.MovePose(*pose(hauteur, inclinaison, rotation, recul))
     robot.temps = 0.0
-    MOUVEMENTS_ROBOT[nom](robot, arg, prise)
+    return robot
+
+
+@functools.lru_cache(maxsize=None)
+def duree_etape(etape, bas=None):
+    """Durée estimée (s) d'une étape, pince partant de la hauteur `bas` (None = position d'attente).
+    Pour tourner_pince, prise = rotation de départ."""
+    nom, arg, prise = etape
+    robot = _chronometre(bas, prise)
+    MOUVEMENTS_ROBOT[nom](robot, arg, prise, bas)
     return robot.temps
 
 
+@functools.lru_cache(maxsize=None)
+def duree_remontee(bas, rotation):
+    """Durée estimée (s) pour remonter de `bas` à la position d'attente (0 si la pince y est déjà)."""
+    robot = _chronometre(bas, rotation)
+    remonter(robot, bas, rotation)
+    return robot.temps
+
+
+def fin_en_bas(etapes):
+    """(bas, rotation de la pince) à la fin des étapes jouées par executer, avant la remontée finale."""
+    if not etapes:
+        return None, 0.0
+    return bas_apres(etapes[-1]), rotation_pince_apres(etapes[-1])
+
+
 def duree_plan(etapes):
-    return sum(duree_etape(e) for e in etapes)
+    """Durée estimée (s) du plan joué par executer (liaisons rapides et remontée finale comprises)."""
+    total, bas = 0.0, None
+    for etape in etapes:
+        total += duree_etape(etape, bas)
+        bas = bas_apres(etape)
+    return total + duree_remontee(*fin_en_bas(etapes))
 
 
 def nombre_de_prises(etapes):
@@ -295,7 +342,7 @@ def _groupes(coups):
 
 
 def _transitions(groupe, g, faits, cle, pince):
-    """Étapes possibles depuis un état (g, faits, orientation, pince) : (étape, nouvel état)."""
+    """Étapes possibles depuis un état (g, faits, orientation, pince) : (étape, nouvel état sans `bas`)."""
     orientation = [list(ligne) for ligne in cle]
     for vers in ROTATIONS_PINCE:                                   # tourner la pince en l'air
         if vers != pince:
@@ -328,32 +375,42 @@ def plan_robot(coups, rotation_pince=0.0, finir_a_zero=True):
     (bascules, rotations du cube entier).
 
     Recherche du plus court chemin (algorithme de Dijkstra) : un ÉTAT est (coups déjà joués,
-    orientation du cube, rotation de la pince) ; passer d'un état à un autre = une étape, qui coûte sa
-    durée estimée. On obtient la suite d'étapes la plus rapide, en choisissant :
+    orientation du cube, rotation de la pince, pince restée en bas ou non) ; passer d'un état à un autre
+    = une étape, qui coûte sa durée estimée (elle part d'en bas, voir LIAISONS).
+    On obtient la suite d'étapes la plus rapide, en choisissant :
       - comment amener chaque face en bas (bascule à gauche ou à droite, tourner le cube avant…) ;
       - la rotation de la pince à chaque prise (-90°, 0°, +90°), pour ne pas la remettre à 0° à chaque fois ;
       - l'ordre de deux coups sur des faces opposées (ils commutent) ;
-      - le sens des demi-tours (+180° ou -180°, en une seule prise).
+      - le sens des demi-tours (+180° ou -180°, en une seule prise) ;
+      - des enchaînements où la pince n'a pas besoin de remonter entre deux prises.
     rotation_pince : rotation de la pince au départ ; finir_a_zero : remettre la pince à 0° à la fin.
     """
     groupes = _groupes(coups)
-    depart = (0, 0, _cle(rot_quart(0, 0)), rotation_pince)
+    depart = (0, 0, _cle(rot_quart(0, 0)), rotation_pince, None)
     meilleur, precedent = {depart: 0.0}, {}
     tas, compteur, fin = [(0.0, 0, depart)], 1, None
     while tas:
         cout, _, etat = heapq.heappop(tas)
         if cout > meilleur[etat]:
             continue                                               # déjà atteint plus vite
-        g, faits, cle, pince = etat
+        g, faits, cle, pince, bas = etat
         if g == len(groupes):
             if not finir_a_zero or pince == 0.0:
-                fin = etat
-                break
-            suivants = [(("tourner_pince", 0.0, pince), (g, faits, cle, 0.0))]
+                if bas is None:
+                    fin = etat
+                    break
+                suivants = [(None, (g, faits, cle, pince))]        # remontée finale (pas une étape)
+            else:
+                suivants = [(("tourner_pince", 0.0, pince), (g, faits, cle, 0.0))]
         else:
             suivants = _transitions(groupes[g], g, faits, cle, pince)
         for etape, nouvel in suivants:
-            c = cout + duree_etape(etape)
+            if etape is None:
+                c = cout + duree_remontee(bas, pince)
+                nouvel += (None,)
+            else:
+                c = cout + duree_etape(etape, bas)
+                nouvel += (bas_apres(etape),)
             if c < meilleur.get(nouvel, float("inf")) - 1e-9:
                 meilleur[nouvel], precedent[nouvel] = c, (etat, etape)
                 heapq.heappush(tas, (c, compteur, nouvel))
@@ -361,7 +418,8 @@ def plan_robot(coups, rotation_pince=0.0, finir_a_zero=True):
     etapes = []
     while fin != depart:
         fin, etape = precedent[fin]
-        etapes.append(etape)
+        if etape is not None:
+            etapes.append(etape)
     return etapes[::-1]
 
 
@@ -403,12 +461,18 @@ def decrire(etape):
     return "%-24s (pince %+.0f°)" % (texte, prise)
 
 
-def executer(robot, etapes, afficher=print):
-    """Fait jouer les étapes au robot (vrai robot ou simulation), une par une."""
+def executer(robot, etapes, afficher=print, apres_etape=None):
+    """Fait jouer les étapes au robot (vrai robot ou simulation), une par une, avec les liaisons rapides
+    (voir LIAISONS), puis remonte la pince en position d'attente.
+    apres_etape(i, etape) : appelée après chaque étape (la simulation y vérifie le cube)."""
+    bas = None
     for i, etape in enumerate(etapes, 1):
         afficher("  %2d/%d  %s" % (i, len(etapes), decrire(etape)))
         nom, arg, prise = etape
-        MOUVEMENTS_ROBOT[nom](robot, arg, prise)
+        bas = MOUVEMENTS_ROBOT[nom](robot, arg, prise, bas)
+        if apres_etape is not None:
+            apres_etape(i, etape)
+    remonter(robot, bas, rotation_pince_apres(etapes[-1]) if etapes else 0.0)
 
 
 def ecrire(coups):

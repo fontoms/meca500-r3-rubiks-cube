@@ -101,23 +101,44 @@ sa durée estimée (`duree.py`). Il choisit la façon d'amener chaque face en ba
 à chaque prise (−90°, 0°, +90° : le socle est symétrique, on ne remet plus la pince à 0° à chaque fois),
 l'ordre de deux coups sur des faces opposées, et fait les demi-tours en une seule prise.
 `meilleure_solution` donne au solveur le cube vu sous ses 24 orientations et garde la solution la plus
-rapide à jouer (~4 s de calcul). Pour une solution de 20 coups (durées estimées) :
+rapide à jouer (~4 s de calcul). Pour une solution de 20 coups :
 
 | | prises | durée |
 |---|---|---|
-| premiers essais (20 mm/s, 30 °/s, 10 %) | ~58 | ~15 min |
-| mêmes mouvements, 100 mm/s, 90 °/s, 25 % | ~58 | ~5 min 30 |
-| plan optimisé + 24 orientations, 100 mm/s, 90 °/s, 25 % | ~48 | ~3 min 50 |
-| plan optimisé + 24 orientations, 200 mm/s, 180 °/s, 50 % (réglages actuels) | ~48 | ~2 min 50 |
+| premiers essais (20 mm/s, 30 °/s, 10 %) | ~58 | ~15 min (estimée) |
+| plan optimisé + 24 orientations, 5000 mm/s, 1000 °/s, 100 % | ~48 | **2 min 17 mesurées** (7/11/2026, 61 étapes) |
+| + accélérations 100 %, pince rapide, liaisons rapides (réglages actuels) | ~48 | ~1 min 05 (estimée) |
 
-Les vitesses se règlent dans `reglages.py` ; la simulation RoboDK les reprend (avec les accélérations de
-`simulation/parametres.py`), donc on voit le vrai rythme en cliquant sur un programme de la station.
+**Ce qui fixe le temps (8/11/2026)** :
+- **la pince** : avant, pause fixe de 0,5 s à chaque ouverture / fermeture (~100 par résolution, ~50 s !).
+  Maintenant doigts à 100 % (`VITESSE_PINCE`, 40 % par défaut) et le robot repart dès que la pince a fini
+  (`briques.attendre_pince` → `WaitGripperMoveCompletion`, firmware ≥ 9.1, sinon pause `DUREE_PINCE`) ;
+- **les accélérations** : les trajets sont courts (30 à 80 mm, 90°), le robot n'atteint jamais 5000 mm/s ;
+  c'est `ACCELERATION_CARTESIENNE` / `ACCELERATION_ARTICULAIRE` (`SetCartAcc` 50 % et `SetJointAcc` 80 %
+  par défaut) qui comptent. À monter par paliers en regardant si le cube glisse ;
+- **les liaisons rapides** : après chaque prise, la pince lâche le cube et reste ouverte autour de lui.
+  La prise suivante part de là en UN déplacement : autre hauteur (`tourner_cube` ↔ `tourner_haut`), ou
+  pince qui penche / se redresse pour une bascule (mâchoires sur les faces avant / arrière : en penchant
+  autour de l'axe X, les doigts glissent le long de ces faces). Elle ne remonte que pour tourner la pince
+  autour de la verticale, et à la fin (le planificateur le sait et en profite) ;
+- **les demi-tours** en un seul déplacement de 179° + 1° (au lieu de 2 × 90° avec un arrêt au milieu) ;
+- **plus de `WaitIdle` entre les mouvements** : les commandes s'enchaînent dans la file du robot.
+- Pas de lissage (`SetBlending` reste à 0) : une commande de pince démarre dès le début du lissage du
+  déplacement précédent (la pince se fermerait avant d'arriver), et près du cube les coins arrondis du
+  trajet toucheraient le cube.
+
+L'estimation (`duree.py`, profil accélération / palier / freinage) est calée sur l'essai du 7/11 ; à
+recaler après chaque essai (`ACCELERATION_*_100`, `DUREE_PINCE_CAPTEUR`).
+
+Les vitesses et accélérations se règlent dans `reglages.py` ; la simulation RoboDK les reprend, donc on
+voit le vrai rythme en cliquant sur un programme de la station.
 RoboDK ne simule pas le frottement : seul le vrai robot dit si le cube glisse dans la pince.
 
 Vérifié : `tests/test_resolution.py` (cubestring → solveur → mouvements → cube résolu, avec le modèle)
 et, dans RoboDK, `resoudre_cube.py --simulation` (ou `MODE = "resolution"` de `simulation/parametres.py`),
 qui utilise exactement le même code que le vrai robot. Chaque variante de mouvement que le plan peut
-choisir est vérifiée dans RoboDK (cinématique et collisions) : `tests/test_mouvements.py`, `test_variante_*`.
+choisir est vérifiée dans RoboDK (cinématique et collisions) : `tests/test_mouvements.py`, `test_variante_*`,
+ainsi que chaque liaison rapide possible (`test_liaison_*`).
 
 ## Piloter le vrai robot : `piloter_robot.py`
 ```
@@ -141,7 +162,8 @@ rubiks.deconnecter(robot)
 - socle posé sur la plaque du robot, centre de la poche à X=170, Y=0 (le cube repose à Z=7 mm) ;
 - commence par `verifier_outil` **sans le cube** : les patins doivent encadrer la poche, 10 mm
   au-dessus de l'endroit où sera le haut du cube ;
-- 1er passage **sans le cube**, vitesses basses (réglées par défaut), main sur l'arrêt d'urgence ;
+- 1er passage **sans le cube**, main sur l'arrêt d'urgence (attention : les vitesses de `reglages.py`
+  sont maintenant celles de la résolution rapide ; les baisser pour un tout premier essai) ;
 - commence par `prendre_et_reposer`, un mouvement à la fois.
 
 ## Tester, mouvement par mouvement
