@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Briques de base (meca500_rubiks/briques.py), testées une par une avec un faux robot."""
+import pytest
+
 import meca500_rubiks as rubiks
+import meca500_rubiks.briques as briques
 
 ATTENTE = rubiks.pose(rubiks.H_ATTENTE)
 
@@ -9,9 +12,71 @@ def test_preparer(robot):
     rubiks.preparer(robot)
     assert robot.commandes[0] == ("SetTrf", rubiks.TCP)
     assert ("SetBlending", (0,)) in robot.commandes
-    assert ("SetCartLinVel", (rubiks.VITESSE_LINEAIRE,)) in robot.commandes
+    facteur = rubiks.VITESSE_GLOBALE
+    assert ("SetCartLinVel", (rubiks.VITESSE_LINEAIRE * facteur,)) in robot.commandes
+    assert ("SetCartAngVel", (rubiks.VITESSE_ANGULAIRE * facteur,)) in robot.commandes
+    assert ("SetJointVel", (rubiks.VITESSE_ARTICULAIRE * facteur,)) in robot.commandes
+    assert ("SetJointVelLimit", (rubiks.VITESSE_ARTICULAIRE * facteur,)) in robot.commandes
     assert "GripperOpen" in robot.noms()
     assert robot.poses()[-1] == ATTENTE
+
+
+def test_preparer_applique_le_facteur_global(monkeypatch, robot):
+    monkeypatch.setattr(briques, "VITESSE_GLOBALE", 0.5)
+
+    rubiks.preparer(robot)
+
+    assert ("SetCartLinVel", (rubiks.VITESSE_LINEAIRE * 0.5,)) in robot.commandes
+    assert ("SetCartAngVel", (rubiks.VITESSE_ANGULAIRE * 0.5,)) in robot.commandes
+    assert ("SetJointVel", (rubiks.VITESSE_ARTICULAIRE * 0.5,)) in robot.commandes
+    assert ("SetJointVelLimit", (rubiks.VITESSE_ARTICULAIRE * 0.5,)) in robot.commandes
+
+
+def test_preparer_applique_le_facteur_choisi(robot):
+    rubiks.preparer(robot, 0.75)
+
+    assert ("SetCartLinVel", (rubiks.VITESSE_LINEAIRE * 0.75,)) in robot.commandes
+    assert ("SetCartAngVel", (rubiks.VITESSE_ANGULAIRE * 0.75,)) in robot.commandes
+    assert ("SetJointVel", (rubiks.VITESSE_ARTICULAIRE * 0.75,)) in robot.commandes
+    assert ("SetJointVelLimit", (rubiks.VITESSE_ARTICULAIRE * 0.75,)) in robot.commandes
+
+
+def test_regler_vitesse_valide_et_applique_les_trois_axes(robot):
+    assert rubiks.regler_vitesse(robot, 0.25) == 0.25
+    assert robot.commandes == [
+        ("SetCartLinVel", (rubiks.VITESSE_LINEAIRE * 0.25,)),
+        ("SetCartAngVel", (rubiks.VITESSE_ANGULAIRE * 0.25,)),
+        ("SetJointVel", (rubiks.VITESSE_ARTICULAIRE * 0.25,)),
+        ("SetJointVelLimit", (rubiks.VITESSE_ARTICULAIRE * 0.25,)),
+    ]
+
+
+@pytest.mark.parametrize("facteur", [0, -0.5, 1.01, float("inf"), float("nan"), True, "0.5"])
+def test_regler_vitesse_refuse_un_facteur_invalide(robot, facteur):
+    with pytest.raises(ValueError, match="facteur de vitesse"):
+        rubiks.regler_vitesse(robot, facteur)
+    assert not robot.commandes
+
+
+def test_menu_permet_de_changer_la_vitesse_globale(monkeypatch, robot):
+    from meca500_rubiks.robot_reel import menu
+
+    saisies = iter(["v", "100", ""])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(saisies))
+
+    menu(robot)
+
+    assert ("SetCartLinVel", (5000.0,)) in robot.commandes
+    assert ("SetCartAngVel", (1000.0,)) in robot.commandes
+    assert ("SetJointVel", (100.0,)) in robot.commandes
+    assert ("SetJointVelLimit", (100.0,)) in robot.commandes
+
+
+def test_vitesses_de_base_et_facteur_global():
+    assert rubiks.VITESSE_LINEAIRE == 5000.0
+    assert rubiks.VITESSE_ANGULAIRE == 1000.0
+    assert rubiks.VITESSE_ARTICULAIRE == 100.0
+    assert rubiks.VITESSE_GLOBALE == 0.1
 
 
 def test_position_attente(robot):

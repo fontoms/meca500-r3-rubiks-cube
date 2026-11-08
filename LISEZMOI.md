@@ -8,6 +8,7 @@ Rubiks_Meca500/
 ├── INTEGRATION_CAMERA.md  ← guide pour le groupe caméra (cubestring, photos, où brancher)
 ├── installer_solveur.py   ← installe le solveur twophase et ses tables (une fois par ordinateur)
 ├── solveur_tables/        ← tables du solveur (~80 Mo, ignoré par git)
+├── rubicks-resolve/       ← sous-module Git de vision et reconnaissance couleur
 ├── meca500_rubiks/        ← LE CODE DU ROBOT (API mecademicpy)
 │   ├── reglages.py        ←   adresse IP, vitesses, géométrie (socle, cube, TCP, hauteurs)
 │   ├── poses.py              calcul des poses de la pince : pose(hauteur, inclinaison, rotation, recul, lieu)
@@ -33,6 +34,9 @@ Rubiks_Meca500/
 ├── modeles_3D/            ← tes pièces réelles (doigts, socle) + photos du montage
 └── robot/                 ← modèle du Meca500 R3
 ```
+
+Après un clonage classique, initialise le sous-module avec `git submodule update --init --recursive`.
+Un clonage neuf peut aussi utiliser l'option `--recurse-submodules`.
 
 ## Les mouvements : `meca500_rubiks/mouvements.py`
 Une fonction par mouvement, **du point de vue du robot** : avant = loin du robot, arrière = vers le robot,
@@ -68,6 +72,8 @@ Les tables vont dans `solveur_tables/`, qui n'est pas suivi par git.
 ```
 python resoudre_cube.py <cubestring>               # calcule, affiche, demande Entrée, fait jouer le robot
 python resoudre_cube.py <cubestring> --sans-robot  # calcule et affiche seulement
+python resoudre_cube.py --presenter-faces           # capture les 6 faces puis résout dans la même session
+python interface_graphique.py                      # interface caméra, vitesse, scan et résolution
 python resoudre_cube.py --exemple --sans-robot     # essai avec un cube mélangé d'exemple
 python resoudre_cube.py --exemple --comparer       # durée estimée avant / après optimisation
 
@@ -76,6 +82,18 @@ python resoudre_cube.py --exemple --simulation                 # animé, au ryth
 python resoudre_cube.py --melange 25 --graine 3 --simulation   # cube mélangé au hasard
 python resoudre_cube.py --exemple --simulation --collisions    # teste chaque déplacement (collisions)
 ```
+La première fois, installe le solveur avec `python installer_solveur.py` (à faire une seule fois par
+ordinateur). `--presenter-faces` précharge le solveur, affiche les caméras par nom et index, demande
+le choix de la caméra puis le pourcentage de vitesse (Entrée conserve 10 %). Après confirmation, le
+robot se connecte une seule fois, scanne les faces, affiche la solution et attend une seconde
+confirmation avant de la jouer.
+
+L'interface `interface_graphique.py` affiche l'aperçu OpenCV avec deux chronomètres : le total cumule
+le scan et l'exécution, sans compter l'attente entre les faces et le lancement de la résolution ; le
+second mesure l'exécution de la résolution. Elle permet aussi de choisir la caméra et la vitesse. Le
+flux caméra reste affiché pendant les mouvements. Avec « Tout faire », le scan est suivi
+automatiquement de la résolution ; sinon, le plan s'affiche après le scan et un clic de validation
+lance les mouvements.
 
 **Le cubestring (contrat avec le groupe caméra)** : 54 lettres `U R F D L B`, format Kociemba (faces
 dans l'ordre U, R, F, D, L, B, 9 cases chacune ; la lettre d'une case = la face dont le centre a cette
@@ -125,11 +143,25 @@ python piloter_robot.py                    # menu
 python piloter_robot.py basculer_droite    # un seul mouvement, puis déconnexion
 python piloter_robot.py --liste            # liste des mouvements
 ```
+Dans le menu, tape `v` puis un pourcentage de 1 à 100 des limites du contrôleur pour régler
+globalement les vitesses linéaire, angulaire et articulaire. À 100 %, les consignes atteignent les
+limites du R3 :
+[SetCartLinVel](https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/motion_commands/SetCartLinVel.html)
+à 5 000 mm/s,
+[SetCartAngVel](https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/motion_commands/SetCartAngVel.html)
+à 1 000°/s, et [SetJointVel](https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/motion_commands/SetJointVel.html)
+à 100 % des vitesses articulaires nominales.
+[SetJointVelLimit](https://resources.mecademic.com/en/doc/MC-PM-MECA500/latest/manual/motion_commands/SetJointVelLimit.html)
+applique aussi ce plafond à tous les mouvements. Le démarrage reste à 10 % (`VITESSE_GLOBALE`) :
+500 mm/s, 100°/s et 10 % des vitesses articulaires nominales. La vitesse réellement atteinte dépend
+de la posture, du TCP et de la charge ; le cube peut glisser à grande vitesse. N’augmente le réglage
+qu’après validation progressive sur le vrai robot, arrêt d’urgence à portée.
 Ou dans ton propre script :
 ```python
 import meca500_rubiks as rubiks
 
 robot = rubiks.connecter()          # connexion, activation, position d'attente
+rubiks.regler_vitesse(robot, 0.5)   # applique 50 % aux trois vitesses
 rubiks.tourner_cube_gauche(robot)
 rubiks.deconnecter(robot)
 ```
@@ -141,7 +173,7 @@ rubiks.deconnecter(robot)
 - socle posé sur la plaque du robot, centre de la poche à X=170, Y=0 (le cube repose à Z=7 mm) ;
 - commence par `verifier_outil` **sans le cube** : les patins doivent encadrer la poche, 10 mm
   au-dessus de l'endroit où sera le haut du cube ;
-- 1er passage **sans le cube**, vitesses basses (réglées par défaut), main sur l'arrêt d'urgence ;
+- 1er passage **sans le cube**, garde `VITESSE_GLOBALE` à 10 % ou moins, main sur l'arrêt d'urgence ;
 - commence par `prendre_et_reposer`, un mouvement à la fois.
 
 ## Tester, mouvement par mouvement
@@ -185,8 +217,12 @@ de son centre (dans RoboDK : objet `Camera`, à `DISTANCE_CAMERA` = 250 mm ; tai
 
 - **Dans RoboDK** : programme **presenter_faces** de l'arbre. La caméra n'est pas simulée : c'est juste
   sa représentation 3D ; à chaque « photo », RoboDK fait une pause et affiche la face dans la barre d'état.
-- **Sur le vrai robot** : `python piloter_robot.py presenter_faces`. Pour l'instant chaque « photo » est
-  une pause de `DUREE_PHOTO` s : branche ta caméra dans `photographier()` (`meca500_rubiks/briques.py`).
+- **Sur le vrai robot** : `python piloter_robot.py presenter_faces`. Les webcams détectées sont
+  proposées. Après le choix, l'aperçu en direct de `rubicks-resolve` reste ouvert pendant les
+  mouvements ; le robot prend automatiquement une image PNG par face dans `captures/`, nommée
+  avec la face et un horodatage. Les couleurs reconnues produisent `cubestring.txt` au format
+  RubikTwoPhase, déjà converti pour l'orientation du cube remis dans le socle. `q` ou Échap ferme
+  seulement l'aperçu : le robot et les captures continuent.
 - Si tu déplaces le point de pose : change `TABLE` dans `reglages.py` **et** `TABLE_X`, `TABLE_Y`,
   `HAUTEUR_TABLE` dans `simulation/parametres.py`, puis relance les tests (cinématique).
 

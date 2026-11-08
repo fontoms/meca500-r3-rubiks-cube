@@ -10,16 +10,30 @@ import time
 
 from .poses import pose
 from .reglages import (DUREE_PHOTO, DUREE_PINCE, H_ATTENTE, H_CUBE, LEVEE, SOCLE, TCP, VITESSE_ANGULAIRE,
-                       VITESSE_ARTICULAIRE, VITESSE_LINEAIRE)
+                       VITESSE_ARTICULAIRE, VITESSE_GLOBALE, VITESSE_LINEAIRE)
+from .vision_capture import capturer_face
 
 
-def preparer(robot):
+def regler_vitesse(robot, facteur=None):
+    """Applique un facteur commun (0 < facteur <= 1) aux trois vitesses du robot."""
+    if facteur is None:
+        facteur = VITESSE_GLOBALE
+    if (isinstance(facteur, bool) or not isinstance(facteur, (int, float))
+            or not 0 < facteur <= 1):
+        raise ValueError("Le facteur de vitesse doit être compris entre 0 (exclu) et 1.")
+
+    robot.SetCartLinVel(VITESSE_LINEAIRE * facteur)
+    robot.SetCartAngVel(VITESSE_ANGULAIRE * facteur)
+    robot.SetJointVel(VITESSE_ARTICULAIRE * facteur)
+    robot.SetJointVelLimit(VITESSE_ARTICULAIRE * facteur)
+    return facteur
+
+
+def preparer(robot, facteur_vitesse=None):
     """Réglages de l'outil et des vitesses, pince ouverte, position d'attente."""
     robot.SetTrf(*TCP)                   # TCP = centre des patins des doigts
     robot.SetBlending(0)                 # passer exactement par chaque point (on est près du cube)
-    robot.SetCartLinVel(VITESSE_LINEAIRE)
-    robot.SetCartAngVel(VITESSE_ANGULAIRE)
-    robot.SetJointVel(VITESSE_ARTICULAIRE)
+    regler_vitesse(robot, facteur_vitesse)
     robot.GripperOpen()
     position_attente(robot)
     robot.WaitIdle(60)
@@ -103,17 +117,22 @@ def transferer(robot, depart, arrivee):
     lacher_et_remonter(robot, lieu=arrivee)
 
 
-def photographier(robot, face):
+def photographier(robot, face, camera=None, references=None):
     """Attend que le robot soit immobile, puis photographie la face tournée vers la caméra.
 
     face : nom de la face AVANT la séquence (dessus, dessous, avant, arriere, gauche, droite).
-    Simulation RoboDK : le faux robot a une méthode prendre_photo (caméra simulée).
-    Vrai robot : c'est ici qu'il faudra déclencher ta caméra ; pour l'instant, une pause.
+    camera : flux de frames de l'aperçu ; None pour la simulation RoboDK.
+    references : couleurs calibrées de rubicks-resolve, ou None.
     """
     robot.WaitIdle(60)
     prendre_photo = getattr(robot, "prendre_photo", None)
-    if prendre_photo is not None:
+    if callable(prendre_photo):
         prendre_photo(face)
+    elif camera is not None:
+        time.sleep(DUREE_PHOTO)
+        chemin, couleurs = capturer_face(camera, face, references)
+        print("Photo enregistrée : %s" % chemin)
+        return couleurs
     else:
         print("Photo de la face « %s »" % face)
         time.sleep(DUREE_PHOTO)

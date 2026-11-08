@@ -1,0 +1,3 @@
+[submodule "rubicks-resolve"]
+	path = rubicks-resolve
+	url = https://github.com/fontoms/meca500-r3-rubiks-vision.git

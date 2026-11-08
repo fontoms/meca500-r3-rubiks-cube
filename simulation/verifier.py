@@ -150,7 +150,7 @@ class RobotVerificateur:
         pass
 
     Connect = ActivateAndHome = WaitHomed = WaitIdle = DeactivateRobot = Disconnect = _rien
-    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = _rien
+    SetBlending = SetCartLinVel = SetCartAngVel = SetJointVel = SetJointVelLimit = _rien
 
     def SetTrf(self, *p):
         self.tcp = _pose(p)

@@ -9,11 +9,12 @@ ADRESSE_IP = "192.168.0.100"
 
 # Vitesses. Limites du Meca500 R3 : SetCartLinVel ≤ 5000 mm/s (défaut 150), SetCartAngVel ≤ 1000 °/s
 # (défaut 45), SetJointVel ≤ 100 % (défaut 25 %) ; articulations J1…J6 : 150, 150, 180, 300, 300, 500 °/s.
-# On reste loin des maximums : le cube, tenu par frottement, ne doit pas glisser dans la pince.
-# Premiers essais (cube résolu du premier coup) : 20 mm/s, 30 °/s, 10 %. À valider sur le vrai robot.
-VITESSE_LINEAIRE = 200.0     # mm/s
-VITESSE_ANGULAIRE = 180.0    # °/s
-VITESSE_ARTICULAIRE = 50.0   # %
+# À 100 % dans le menu, les consignes atteignent les limites du contrôleur. Le cube tenu par frottement peut glisser.
+# Le facteur global démarre à 10 % : 500 mm/s, 100 °/s et 10 % des vitesses articulaires nominales.
+VITESSE_LINEAIRE = 5000.0    # mm/s
+VITESSE_ANGULAIRE = 1000.0   # °/s
+VITESSE_ARTICULAIRE = 100.0  # %
+VITESSE_GLOBALE = 0.1        # facteur commun (10 % au démarrage ; plage réglable : ]0, 1])
 DUREE_PINCE = 0.5            # s
 
 # Rotations de la pince (autour de la verticale, poses.pose) où elle peut saisir le cube. Le socle est

@@ -4,20 +4,23 @@ Ce document explique **où brancher la caméra** et **quel cubestring fournir** 
 existe déjà et est testé : mouvements du robot, présentation des 6 faces à la caméra, solveur,
 exécution de la solution.
 
+Le dossier `rubicks-resolve/` est un sous-module Git. Après un clonage classique du projet, initialise-le
+avec `git submodule update --init --recursive` ; un clonage neuf peut utiliser `--recurse-submodules`.
+
 ## 1. Ce qui existe déjà
 
 ```
 Cube dans le socle
-  │  presenter_faces(robot)          ← meca500_rubiks/mouvements.py
-  │    pose le cube sur la table, devant la caméra, et montre les 6 faces une par une ;
-  │    à chaque face, appelle photographier(robot, face)   ← À BRANCHER (meca500_rubiks/briques.py)
-  │    puis remet le cube dans le socle (TOURNÉ par rapport au départ, voir § 4)
+  │  python resoudre_cube.py --presenter-faces
+  │    affiche les caméras par nom et index, puis demande le choix et la vitesse
+  │    (1–100 %, défaut 10 %) avant confirmation et connexion du robot ;
+  │    ouvre l'aperçu de la caméra choisie et montre les 6 faces pendant que le robot bouge ;
+  │    photographier(robot, face) capture et reconnaît chaque face (meca500_rubiks/briques.py)
+  │    remet le cube dans le socle (TOURNÉ par rapport au départ, voir § 4)
   ▼
-6 photos  ──►  VOTRE CODE : couleurs des 54 cases  ──►  cubestring (54 lettres)
+6 photos  ──►  rubicks-resolve reconnaît les 54 cases et écrit cubestring.txt
   ▼
-resolution.cubestring_apres_presenter_faces(cubestring)   ← tient compte de la rotation du § 4
-  ▼
-resolution.resoudre(robot, cubestring)      ← solveur twophase + mouvements du robot
+solveur twophase → confirmation → mouvements du robot
   ▼
 Cube résolu
 ```
@@ -27,7 +30,7 @@ Points d'entrée (tous dans `meca500_rubiks/resolution.py`, sauf mention) :
 | Fonction | Rôle |
 |---|---|
 | `rubiks.connecter()` / `rubiks.deconnecter(robot)` | connexion au vrai Meca500 (`import meca500_rubiks as rubiks`) |
-| `rubiks.presenter_faces(robot)` | montre les 6 faces à la caméra, renvoie la liste des faces dans l'ordre des photos |
+| `rubiks.presenter_faces(robot)` | montre les 6 faces, enregistre leurs photos et écrit `cubestring.txt` sur le vrai robot |
 | `verifier_cubestring(s)` | contrôle le format (54 lettres, 9 de chaque, centres URFDLB) |
 | `cubestring_apres_presenter_faces(s)` | convertit le cubestring des photos pour le cube remis dans le socle |
 | `calculer_solution(s)` | solution `[(face, k)]` (twophase), sans bouger le robot |
@@ -103,17 +106,35 @@ for face, o in resolution.orientations_presenter_faces():
     print(face, resolution.vue_camera(o))     # (face au centre, face en haut, face à droite)
 ```
 
-**Où brancher la caméra** : `photographier(robot, face)` dans `meca500_rubiks/briques.py`. Aujourd'hui,
-la fonction attend que le robot soit immobile (`WaitIdle`), puis fait une pause de `DUREE_PHOTO`.
-Remplacez la pause par la prise de vue, et gardez le `WaitIdle` avant. Dans la simulation RoboDK, le faux
-robot a une méthode `prendre_photo` qui affiche juste la face : ne cassez pas ce cas, sinon les tests
-de simulation tombent.
+**La caméra est déjà intégrée** : lance `python .\interface_graphique.py` pour ouvrir l'interface
+PyQt, choisir une caméra par son nom, voir son aperçu OpenCV avec le temps total et le temps de
+résolution, et régler la vitesse. Le total exclut l'attente entre le scan des faces et le lancement de
+la résolution. L'aperçu continue pendant les mouvements du robot. « Tout faire » enchaîne scan et
+résolution ; sinon, le plan s'affiche après le scan et doit être validé avant les mouvements. La
+commande `python .\resoudre_cube.py --presenter-faces` conserve aussi le parcours
+interactif en console. Dans les deux cas, `presenter_faces` enregistre les six images dans
+`captures/`, puis construit `cubestring.txt`. `photographier` attend `WaitIdle` avant chaque capture.
+Pour utiliser les seuils calibrés, lance `python .\rubicks-resolve\main.py --calibrate` ; le fichier
+`rubicks-resolve\config\colors.json` est chargé indépendamment du dossier de lancement.
+Dans la simulation RoboDK, le faux robot affiche seulement la face : ce comportement est conservé.
+
+Pour enchaîner scan et résolution dans la même connexion robot :
+
+```powershell
+python .\resoudre_cube.py --presenter-faces
+```
+
+Le solveur doit avoir été installé une première fois (`python .\installer_solveur.py`). La commande
+calcule ensuite le plan, demande confirmation et joue la solution sans déconnecter le robot entre le
+scan et la résolution.
 
 ## 4. Attention : le cube revient TOURNÉ dans le socle
 
 Après les 6 photos, `presenter_faces` remet le cube dans le socle **dans une autre orientation qu'au
-départ**. C'est le chemin le plus court, et c'est voulu. Un cubestring construit avec les noms de faces
-du départ (tableau du § 3) décrit donc le cube d'**avant** : il faut le convertir.
+départ**. C'est le chemin le plus court, et c'est voulu. Le `cubestring.txt` généré est automatiquement
+converti pour décrire le cube **après** la présentation, prêt pour `resolution.resoudre`.
+Si tu construis un cubestring manuellement à partir des photos (noms de faces du tableau du § 3),
+convertis-le avant de résoudre :
 
 ```python
 import meca500_rubiks as rubiks
@@ -121,8 +142,8 @@ from meca500_rubiks import resolution
 
 robot = rubiks.connecter()
 try:
-    rubiks.presenter_faces(robot)                   # appelle votre code photo à chaque face
-    cubestring_avant = ...                          # VOTRE CODE : à partir des 6 photos (noms du § 3)
+    rubiks.presenter_faces(robot)
+    cubestring_avant = ...                          # lecture manuelle des six photos
     cubestring = resolution.cubestring_apres_presenter_faces(cubestring_avant)
     resolution.resoudre(robot, cubestring)
 finally:

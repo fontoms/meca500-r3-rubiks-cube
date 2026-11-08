@@ -2,3 +2,7 @@ robodk>=6.0.2
 mecademicpy>=3.0
 pytest>=8
 RubikTwoPhase>=1.1
+numpy
+opencv-python
+cv2-enumerate-cameras>=1.4
+PyQt6>=6.8

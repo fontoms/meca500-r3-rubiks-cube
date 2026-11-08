@@ -43,6 +43,7 @@ class Chronometre:
         self.temps = 0.0
         self.pose = None
         self.v_lin, self.v_ang, self.v_art = 150.0, 45.0, 25.0      # valeurs par défaut du Meca500
+        self.v_art_limit = 100.0
 
     def _deplacement(self, p, duree):
         if self.pose is not None:
@@ -61,7 +62,7 @@ class Chronometre:
         if self.pose is None:
             self.pose = p
             return
-        pct = self.v_art / 100.0
+        pct = min(self.v_art, self.v_art_limit) / 100.0
         d, a = math.dist(self.pose[:3], p[:3]), angle_entre(self.pose, p)
         v_bras = RAYON_BRAS * math.radians(VITESSE_MAX_ARTICULATIONS[0]) * pct
         self._deplacement(p, max(d / v_bras, a / (VITESSE_MAX_ARTICULATIONS[5] * pct)))
@@ -80,6 +81,9 @@ class Chronometre:
 
     def SetJointVel(self, v):
         self.v_art = v
+
+    def SetJointVelLimit(self, v):
+        self.v_art_limit = v
 
     def _rien(self, *args, **kwargs):
         pass

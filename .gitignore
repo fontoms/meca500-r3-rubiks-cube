@@ -16,3 +16,7 @@ __pycache__/
 
 # Tables du solveur twophase (~80 Mo, générées par installer_solveur.py)
 solveur_tables/
+
+# Résultats générés par l'intégration caméra
+/captures/
+/cubestring.txt

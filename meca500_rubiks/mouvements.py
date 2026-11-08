@@ -15,6 +15,7 @@ from .briques import (aller, aller_en_tournant, fermer_pince, lacher_et_remonter
                       position_attente, saisir, tourner_pince, transferer)
 from .reglages import (SOCLE, TABLE, COTE_CUBE, DECALAGE_BASCULE, H_COUCHES_HAUT, H_CUBE, H_ATTENTE, INCLINAISON,
                        LEVEE, RECUL_BASCULE, ROTATION_BASCULE, ROTATIONS_PINCE)
+from .vision_capture import creer_cubestring, executer_avec_apercu
 
 
 def _verifier_rotations(prise, fin):
@@ -185,20 +186,35 @@ MOUVEMENTS_SUR_TABLE = {
 }
 
 
-def presenter_faces(robot):
+def presenter_faces(robot, selection_camera=None, callback_apercu=None, afficher_fenetre=True,
+                    callback_erreur_vision=None):
     """Pose le cube sur la table devant la caméra, photographie ses 6 faces, le remet dans le socle.
 
     Le cube revient dans le socle dans une autre orientation qu'au départ.
-    Renvoie les faces dans l'ordre des photos.
+    Renvoie les faces dans l'ordre des photos et génère cubestring.txt sur le vrai robot.
     """
-    transferer(robot, SOCLE, TABLE)
-    photographier(robot, FACE_VUE_AU_DEPART)
-    for mouvement, face in ETAPES_PHOTO:
-        MOUVEMENTS_SUR_TABLE[mouvement](robot)
-        if face is not None:
-            photographier(robot, face)
-    transferer(robot, TABLE, SOCLE)
-    return [FACE_VUE_AU_DEPART] + [face for _, face in ETAPES_PHOTO if face is not None]
+    def presenter(camera, references):
+        photos = {}
+
+        def capturer(face):
+            couleurs = photographier(robot, face, camera, references)
+            if camera is not None:
+                photos[face] = couleurs
+
+        transferer(robot, SOCLE, TABLE)
+        capturer(FACE_VUE_AU_DEPART)
+        for mouvement, face in ETAPES_PHOTO:
+            MOUVEMENTS_SUR_TABLE[mouvement](robot)
+            if face is not None:
+                capturer(face)
+        transferer(robot, TABLE, SOCLE)
+        if camera is not None:
+            creer_cubestring(photos)
+        return [FACE_VUE_AU_DEPART] + [face for _, face in ETAPES_PHOTO if face is not None]
+
+    return executer_avec_apercu(
+        robot, presenter, selection_camera, callback_apercu, afficher_fenetre,
+        callback_erreur_vision)
 
 
 MOUVEMENTS = [
